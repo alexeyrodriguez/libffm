@@ -53,9 +53,9 @@ struct ffm_parameter
     bool auto_stop;
 };
 
-ffm_problem* ffm_read_problem(char const *path);
+ffm_problem* ffm_read_problem(char const *path, ffm_int discard_mask);
 
-int ffm_read_problem_to_disk(char const *txt_path, char const *bin_path);
+int ffm_read_problem_to_disk(char const *txt_path, char const *bin_path, ffm_int discard_mask);
 
 void ffm_destroy_problem(struct ffm_problem **prob);
 

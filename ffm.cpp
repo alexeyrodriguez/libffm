@@ -597,7 +597,7 @@ shared_ptr<ffm_model> train_on_disk(
 
 } // unnamed namespace
 
-ffm_problem* ffm_read_problem(char const *path)
+ffm_problem* ffm_read_problem(char const *path, ffm_int discard_mask)
 {
     if(strlen(path) == 0)
         return nullptr;
@@ -641,7 +641,7 @@ ffm_problem* ffm_read_problem(char const *path)
         ffm_float y = (atoi(y_char)>0)? 1.0f : -1.0f;
         prob->Y[i] = y;
 
-        for(; ; p++)
+        while(true)
         {
             char *field_char = strtok(nullptr,":");
             char *idx_char = strtok(nullptr,":");
@@ -653,12 +653,17 @@ ffm_problem* ffm_read_problem(char const *path)
             ffm_int idx = atoi(idx_char);
             ffm_float value = atof(value_char);
 
+            if(((1<<field) & discard_mask) != 0)
+                continue;
+
             prob->m = max(prob->m, field+1);
             prob->n = max(prob->n, idx+1);
             
             prob->X[p].f = field;
             prob->X[p].j = idx;
             prob->X[p].v = value;
+
+            p++;
         }
         prob->P[i+1] = p;
     }
@@ -668,7 +673,7 @@ ffm_problem* ffm_read_problem(char const *path)
     return prob;
 }
 
-int ffm_read_problem_to_disk(char const *txt_path, char const *bin_path)
+int ffm_read_problem_to_disk(char const *txt_path, char const *bin_path, ffm_int discard_mask)
 {
     FILE *f_txt = fopen(txt_path, "r");
     if(f_txt == nullptr)
@@ -724,7 +729,7 @@ int ffm_read_problem_to_disk(char const *txt_path, char const *bin_path)
         ffm_float y = (atoi(y_char)>0)? 1.0f : -1.0f;
 
         ffm_float scale = 0;
-        for(; ; p++)
+        while(true)
         {
             char *field_char = strtok(nullptr,":");
             char *idx_char = strtok(nullptr,":");
@@ -737,12 +742,17 @@ int ffm_read_problem_to_disk(char const *txt_path, char const *bin_path)
             N.j = atoi(idx_char);
             N.v = atof(value_char);
 
+            if(((1<<N.f) & discard_mask) != 0)
+                continue;
+
             X.push_back(N);
 
             m = max(m, N.f+1);
             n = max(n, N.j+1);
 
             scale += N.v*N.v;
+
+            p++;
         }
         scale = 1/scale;
 
