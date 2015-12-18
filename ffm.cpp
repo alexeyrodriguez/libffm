@@ -274,6 +274,8 @@ shared_ptr<ffm_model> train(
         {
             cout.width(13);
             cout << "va_logloss";
+            cout.width(13);
+            cout << "va_accuracy";
         }
         cout << endl;
     }
@@ -320,8 +322,9 @@ shared_ptr<ffm_model> train(
             if(va != nullptr && va->l != 0)
             {
                 ffm_double va_loss = 0;
+                ffm_double va_accuracy = 0;
 #if defined USEOMP
-#pragma omp parallel for schedule(static) reduction(+:va_loss)
+#pragma omp parallel for schedule(static) reduction(+:va_loss) reduction(+:va_accuracy)
 #endif
                 for(ffm_int i = 0; i < va->l; i++)
                 {
@@ -338,11 +341,17 @@ shared_ptr<ffm_model> train(
                     ffm_float expnyt = exp(-y*t);
 
                     va_loss += log(1+expnyt);
+
+                    if(y*t >= 0)
+                        va_accuracy += 1;
                 }
                 va_loss /= va->l;
+                va_accuracy /= va->l;
 
                 cout.width(13);
                 cout << fixed << setprecision(5) << va_loss;
+                cout.width(13);
+                cout << fixed << setprecision(5) << va_accuracy;
 
                 if(auto_stop)
                 {
@@ -429,6 +438,8 @@ shared_ptr<ffm_model> train_on_disk(
         {
             cout.width(13);
             cout << "va_logloss";
+            cout.width(13);
+            cout << "va_accuracy";
         }
         cout << endl;
     }
@@ -500,6 +511,7 @@ shared_ptr<ffm_model> train_on_disk(
 
                 ffm_int va_l = 0;
                 ffm_double va_loss = 0;
+                ffm_double va_accuracy = 0;
                 while(true)
                 {
                     ffm_int l;
@@ -521,7 +533,7 @@ shared_ptr<ffm_model> train_on_disk(
                     fread(X.data(), sizeof(ffm_node), P[l], f_va);
 
 #if defined USEOMP
-#pragma omp parallel for schedule(static) reduction(+: va_loss)
+#pragma omp parallel for schedule(static) reduction(+: va_loss) reduction(+: va_accuracy)
 #endif
                     for(ffm_int i = 0; i < l; i++)
                     {
@@ -538,12 +550,18 @@ shared_ptr<ffm_model> train_on_disk(
                         ffm_float expnyt = exp(-y*t);
 
                         va_loss += log(1+expnyt);
+
+                        if(y*t >= 0)
+                            va_accuracy += 1;
                     }
                 }
                 va_loss /= va_l;
+                va_accuracy /= va_l;
 
                 cout.width(13);
                 cout << fixed << setprecision(5) << va_loss;
+                cout.width(13);
+                cout << fixed << setprecision(5) << va_accuracy;
 
                 if(auto_stop)
                 {
