@@ -597,7 +597,7 @@ shared_ptr<ffm_model> train_on_disk(
 
 } // unnamed namespace
 
-ffm_problem* ffm_read_problem(char const *path, ffm_int discard_mask)
+ffm_problem* ffm_read_problem(char const *path, ffm_int discard_mask, ffm_float scale_params[])
 {
     if(strlen(path) == 0)
         return nullptr;
@@ -653,8 +653,11 @@ ffm_problem* ffm_read_problem(char const *path, ffm_int discard_mask)
             ffm_int idx = atoi(idx_char);
             ffm_float value = atof(value_char);
 
-            if(((1<<field) & discard_mask) != 0)
+            if(field < MAX_MASKED_FIELDS && ((1<<field) & discard_mask) != 0)
                 continue;
+
+            if(field < MAX_MASKED_FIELDS)
+                value *= scale_params[field];
 
             prob->m = max(prob->m, field+1);
             prob->n = max(prob->n, idx+1);
@@ -673,7 +676,7 @@ ffm_problem* ffm_read_problem(char const *path, ffm_int discard_mask)
     return prob;
 }
 
-int ffm_read_problem_to_disk(char const *txt_path, char const *bin_path, ffm_int discard_mask)
+int ffm_read_problem_to_disk(char const *txt_path, char const *bin_path, ffm_int discard_mask, ffm_float scale_params[])
 {
     FILE *f_txt = fopen(txt_path, "r");
     if(f_txt == nullptr)
@@ -742,8 +745,11 @@ int ffm_read_problem_to_disk(char const *txt_path, char const *bin_path, ffm_int
             N.j = atoi(idx_char);
             N.v = atof(value_char);
 
-            if(((1<<N.f) & discard_mask) != 0)
+            if(N.f < MAX_MASKED_FIELDS && ((1<<N.f) & discard_mask) != 0)
                 continue;
+
+            if(N.f < MAX_MASKED_FIELDS)
+                N.v *= scale_params[N.f];
 
             X.push_back(N);
 

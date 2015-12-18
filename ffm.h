@@ -9,6 +9,8 @@ namespace ffm
 {
 #endif
 
+#define MAX_MASKED_FIELDS 32
+
 typedef float ffm_float;
 typedef double ffm_double;
 typedef int ffm_int;
@@ -53,9 +55,9 @@ struct ffm_parameter
     bool auto_stop;
 };
 
-ffm_problem* ffm_read_problem(char const *path, ffm_int discard_mask);
+ffm_problem* ffm_read_problem(char const *path, ffm_int discard_mask, ffm_float scale_params[]);
 
-int ffm_read_problem_to_disk(char const *txt_path, char const *bin_path, ffm_int discard_mask);
+int ffm_read_problem_to_disk(char const *txt_path, char const *bin_path, ffm_int discard_mask, ffm_float scale_params[]);
 
 void ffm_destroy_problem(struct ffm_problem **prob);
 

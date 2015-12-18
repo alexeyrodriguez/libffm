@@ -26,6 +26,7 @@ string train_help()
 "-p <path>: set path to the validation set\n"
 "-v <fold>: set the number of folds for cross-validation\n"
 "-d <field>: discard specified field at training and validation times\n"
+"-c <field> <scale>: scale specified field at training and validation times by specified scalar\n"
 "--quiet: quiet model (no output)\n"
 "--no-norm: disable instance-wise normalization\n"
 "--no-rand: disable random update\n"
@@ -35,11 +36,17 @@ string train_help()
 
 struct Option
 {
-    Option() : param(ffm_get_default_param()), nr_folds(1), discard_mask(0), do_cv(false), on_disk(false) {}
+    Option() : param(ffm_get_default_param()),
+                     nr_folds(1),
+                     discard_mask(0),
+                     scale_params(MAX_MASKED_FIELDS, 1.0),
+                     do_cv(false),
+                     on_disk(false) {}
     string tr_path, va_path, model_path;
     ffm_parameter param;
     ffm_int nr_folds;
     ffm_int discard_mask;
+    vector<ffm_float> scale_params;
     bool do_cv, on_disk;
 };
 
@@ -130,9 +137,22 @@ Option parse_option(int argc, char **argv)
             ffm_int field = atoi(args[i].c_str());
             if(field < 0)
                 throw invalid_argument("field index must be larger or equal to zero");
-            if(field >= 32) // Arbitrary limit
+            if(field >= MAX_MASKED_FIELDS)
                 throw invalid_argument("field index must be smaller than 32");
             opt.discard_mask |= 1 << field;
+        }
+        else if(args[i].compare("-c") == 0)
+        {
+            if(i == argc-1)
+                throw invalid_argument("need to specify field index after -c");
+            i++;
+            ffm_int field = atoi(args[i].c_str());
+            if(field < 0)
+                throw invalid_argument("field index must be larger or equal to zero");
+            if(field >= MAX_MASKED_FIELDS)
+                throw invalid_argument("field index must be smaller than 32");
+            i++;
+            opt.scale_params[field] = atof(args[i].c_str());
         }
         else if(args[i].compare("-p") == 0)
         {
@@ -191,7 +211,7 @@ Option parse_option(int argc, char **argv)
 
 int train(Option opt)
 {
-    ffm_problem *tr = ffm_read_problem(opt.tr_path.c_str(), opt.discard_mask);
+    ffm_problem *tr = ffm_read_problem(opt.tr_path.c_str(), opt.discard_mask, opt.scale_params.data());
     if(tr == nullptr)
     {
         cerr << "cannot load " << opt.tr_path << endl << flush;
@@ -201,7 +221,7 @@ int train(Option opt)
     ffm_problem *va = nullptr;
     if(!opt.va_path.empty())
     {
-        va = ffm_read_problem(opt.va_path.c_str(), opt.discard_mask);
+        va = ffm_read_problem(opt.va_path.c_str(), opt.discard_mask, opt.scale_params.data());
         if(va == nullptr)
         {
             ffm_destroy_problem(&tr);
@@ -247,9 +267,9 @@ int train_on_disk(Option opt)
     string tr_bin_path = basename(opt.tr_path) + ".bin";
     string va_bin_path = opt.va_path.empty()? "" : basename(opt.va_path) + ".bin";
 
-    ffm_read_problem_to_disk(opt.tr_path.c_str(), tr_bin_path.c_str(), opt.discard_mask);
+    ffm_read_problem_to_disk(opt.tr_path.c_str(), tr_bin_path.c_str(), opt.discard_mask, opt.scale_params.data());
     if(!opt.va_path.empty())
-        ffm_read_problem_to_disk(opt.va_path.c_str(), va_bin_path.c_str(), opt.discard_mask);
+        ffm_read_problem_to_disk(opt.va_path.c_str(), va_bin_path.c_str(), opt.discard_mask, opt.scale_params.data());
 
     ffm_model *model = ffm_train_with_validation_on_disk(tr_bin_path.c_str(), va_bin_path.c_str(), opt.param);
 
