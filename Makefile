@@ -1,9 +1,11 @@
 CXX = g++
 CXXFLAGS = -Wall -O3 -std=c++0x -march=native
 
-# comment the following flags if you do not want to use OpenMP
-DFLAG += -DUSEOMP
-CXXFLAGS += -fopenmp
+OMP_DFLAG = -DUSEOMP
+OMP_CXXFLAGS = -fopenmp
+
+DFLAG += $(OMP_DFLAG)
+CXXFLAGS += $(OMP_CXXFLAGS)
 
 all: ffm-train ffm-predict
 
