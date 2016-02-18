@@ -18,6 +18,7 @@
 #endif
 
 #include "ffm.h"
+#include "ffm_internal.h"
 
 namespace ffm {
 
@@ -289,32 +290,31 @@ shared_ptr<ffm_model> train(
     for(ffm_int iter = 1; iter <= param.nr_iters; iter++)
     {
         ffm_double tr_loss = 0;
+        vector<ffm_node> example_row;
         if(param.random)
             random_shuffle(order.begin(), order.end());
 #if defined USEOMP
-#pragma omp parallel for schedule(static) reduction(+: tr_loss)
+#pragma omp parallel for schedule(static) reduction(+: tr_loss) private(example_row)
 #endif
         for(ffm_int ii = 0; ii < tr->l; ii++)
         {
             ffm_int i = order[ii];
 
             ffm_float y = tr->Y[i];
-            
-            ffm_node *begin = &tr->X[tr->P[i]];
 
-            ffm_node *end = &tr->X[tr->P[i+1]];
+            join_features(bs, &tr->X[tr->P[i]], tr->P[i+1] - tr->P[i], example_row);
 
             ffm_float r = R_tr[i];
 
-            ffm_float t = wTx(begin, end, r, *model);
+            ffm_float t = wTx(example_row.data(), example_row.data() + example_row.size(), r, *model);
 
             ffm_float expnyt = exp(-y*t);
 
             tr_loss += log(1+expnyt);
-               
+
             ffm_float kappa = -y*expnyt/(1+expnyt);
 
-            wTx(begin, end, r, *model, kappa, param.eta, param.lambda, true);
+            wTx(example_row.data(), example_row.data() + example_row.size(), r, *model, kappa, param.eta, param.lambda, true);
         }
 
         if(!param.quiet)
@@ -330,20 +330,18 @@ shared_ptr<ffm_model> train(
                 ffm_double va_loss = 0;
                 ffm_double va_accuracy = 0;
 #if defined USEOMP
-#pragma omp parallel for schedule(static) reduction(+:va_loss) reduction(+:va_accuracy)
+#pragma omp parallel for schedule(static) reduction(+:va_loss) reduction(+:va_accuracy) private(example_row)
 #endif
                 for(ffm_int i = 0; i < va->l; i++)
                 {
                     ffm_float y = va->Y[i];
 
-                    ffm_node *begin = &va->X[va->P[i]];
-
-                    ffm_node *end = &va->X[va->P[i+1]];
+                    join_features(bs, &va->X[va->P[i]], va->P[i+1] - va->P[i], example_row);
 
                     ffm_float r = R_va[i];
 
-                    ffm_float t = wTx(begin, end, r, *model);
-                    
+                    ffm_float t = wTx(example_row.data(), example_row.data() + example_row.size(), r, *model);
+
                     ffm_float expnyt = exp(-y*t);
 
                     va_loss += log(1+expnyt);
