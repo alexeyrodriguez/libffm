@@ -48,7 +48,7 @@ public:
         source.push_back({0, 1, 1});
         source.push_back({0, 2, 1});
         vector<ffm_node> target;
-        join_features(nullptr, source, target);
+        join_features(nullptr, source.data(), source.size(), target);
         TS_ASSERT_EQUALS(target.size(), 2);
         TS_ASSERT_EQUALS(source[0].f, target[0].f);
         TS_ASSERT_EQUALS(source[0].j, target[0].j);
@@ -65,7 +65,7 @@ public:
         source.push_back({0, 2, 1});
         vector<ffm_node> target;
         ffm_block_structure* bs = ffm_read_block_structure("fixtures/block_structure.txt");
-        join_features(bs, source, target);
+        join_features(bs, source.data(), source.size(), target);
         TS_ASSERT_EQUALS(target.size(), 4);
         TS_ASSERT_EQUALS(source[0].f, target[0].f);
         TS_ASSERT_EQUALS(source[0].j, target[0].j);
