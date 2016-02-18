@@ -226,6 +226,7 @@ vector<ffm_float> normalize(ffm_problem &prob)
 shared_ptr<ffm_model> train(
     ffm_problem *tr, 
     vector<ffm_int> &order, 
+    ffm_block_structure *bs,
     ffm_parameter param, 
     ffm_problem *va=nullptr)
 {
@@ -234,8 +235,13 @@ shared_ptr<ffm_model> train(
     omp_set_num_threads(param.nr_threads);
 #endif
 
+    ffm_int n=tr->n, m=tr->m;
+    if(bs!=nullptr) {
+      n = max(n, bs->max_feature);
+      m = max(m, bs->max_field);
+    }
     shared_ptr<ffm_model> model = 
-        shared_ptr<ffm_model>(init_model(tr->n, tr->m, param),
+        shared_ptr<ffm_model>(init_model(n, m, param),
             [] (ffm_model *ptr) { ffm_destroy_model(&ptr); });
 
     vector<ffm_float> R_tr, R_va;
@@ -873,13 +879,13 @@ ffm_parameter ffm_get_default_param()
     return param;
 }
 
-ffm_model* ffm_train_with_validation(ffm_problem *tr, ffm_problem *va, ffm_parameter param)
+ffm_model* ffm_train_with_validation(ffm_problem *tr, ffm_problem *va, ffm_block_structure *bs, ffm_parameter param)
 {
     vector<ffm_int> order(tr->l);
     for(ffm_int i = 0; i < tr->l; i++)
         order[i] = i;
 
-    shared_ptr<ffm_model> model = train(tr, order, param, va);
+    shared_ptr<ffm_model> model = train(tr, order, bs, param, va);
 
     ffm_model *model_ret = new ffm_model;
 
@@ -894,9 +900,9 @@ ffm_model* ffm_train_with_validation(ffm_problem *tr, ffm_problem *va, ffm_param
     return model_ret;
 }
 
-ffm_model* ffm_train(ffm_problem *prob, ffm_parameter param)
+ffm_model* ffm_train(ffm_problem *prob, ffm_parameter param, ffm_block_structure *bs)
 {
-    return ffm_train_with_validation(prob, nullptr, param);
+    return ffm_train_with_validation(prob, nullptr, bs, param);
 }
 
 ffm_model* ffm_train_with_validation_on_disk(
@@ -971,6 +977,7 @@ ffm_float ffm_predict(ffm_node *begin, ffm_node *end, ffm_model *model)
 ffm_float ffm_cross_validation(
     ffm_problem *prob, 
     ffm_int nr_folds,
+    ffm_block_structure *bs,
     ffm_parameter param)
 {
 #if defined USEOMP
@@ -1008,7 +1015,7 @@ ffm_float ffm_cross_validation(
         for(ffm_int i = end; i < prob->l; i++)
             order1.push_back(order[i]);
 
-        shared_ptr<ffm_model> model = train(prob, order1, param);
+        shared_ptr<ffm_model> model = train(prob, order1, bs, param);
 
         ffm_double loss1 = 0;
 #if defined USEOMP
@@ -1099,15 +1106,15 @@ ffm_block_structure* ffm_read_block_structure(char const *path)
             ffm_int field = atoi(field_char);
             ffm_int idx = atoi(idx_char);
             ffm_float value = atof(value_char);
-            max_feature = max(max_feature, idx);
-            max_field = max(max_field, field);
+            max_feature = max(max_feature, idx+1);
+            max_field = max(max_field, field+1);
 
             feature_block.push_back({field, idx, value});
         }
     }
 
     block_index.resize(last_key_feature+2, feature_block.size());
-    max_feature = max(max_feature, last_key_feature);
+    max_feature = max(max_feature, last_key_feature+1);
 
     fclose(f_block);
 

@@ -15,7 +15,7 @@ ffm-train: ffm-train.cpp ffm.o
 ffm-predict: ffm-predict.cpp ffm.o
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
-ffm.o: ffm.cpp ffm.h
+ffm.o: ffm.cpp ffm.h ffm_internal.h
 	$(CXX) $(CXXFLAGS) $(DFLAG) -c -o $@ $<
 
 # Unit tests

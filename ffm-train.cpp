@@ -35,10 +35,10 @@ string train_help()
 struct Option
 {
     Option() : param(ffm_get_default_param()), nr_folds(1), do_cv(false), on_disk(false) {}
-    string tr_path, va_path, model_path;
+    string tr_path, va_path, model_path, bs_path;
     ffm_parameter param;
     ffm_int nr_folds;
-    bool do_cv, on_disk;
+    bool do_cv, on_disk, do_bs;
 };
 
 string basename(string path)
@@ -147,6 +147,14 @@ Option parse_option(int argc, char **argv)
         {
             opt.param.auto_stop = true;
         }
+        else if(args[i].compare("--block-structure") == 0)
+        {
+            if(i == argc-1)
+                throw invalid_argument("need to specify path after --block-structure");
+            i++;
+            opt.bs_path = args[i].c_str();
+            opt.do_bs = true;
+        }
         else
         {
             break;
@@ -177,6 +185,17 @@ Option parse_option(int argc, char **argv)
 
 int train(Option opt)
 {
+    ffm_block_structure *bs=nullptr;
+    if(opt.do_bs)
+    {
+      // XXX(AR): Destroy block structure
+      bs = ffm_read_block_structure(opt.bs_path.c_str());
+      if(bs == nullptr)
+      {
+          cerr << "cannot load " << opt.bs_path << endl << flush;
+          return 1;
+      }
+    }
     ffm_problem *tr = ffm_read_problem(opt.tr_path.c_str());
     if(tr == nullptr)
     {
@@ -199,11 +218,11 @@ int train(Option opt)
     int status = 0;
     if(opt.do_cv)
     {
-        ffm_cross_validation(tr, opt.nr_folds, opt.param);
+        ffm_cross_validation(tr, opt.nr_folds, bs, opt.param);
     }
     else
     {
-        ffm_model *model = ffm_train_with_validation(tr, va, opt.param);
+        ffm_model *model = ffm_train_with_validation(tr, va, bs, opt.param);
 
         status = ffm_save_model(model, opt.model_path.c_str());
 
