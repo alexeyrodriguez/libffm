@@ -18,5 +18,15 @@ ffm-predict: ffm-predict.cpp ffm.o
 ffm.o: ffm.cpp ffm.h
 	$(CXX) $(CXXFLAGS) $(DFLAG) -c -o $@ $<
 
+# Unit tests
+test: runner
+	./runner
+
+runner.cpp: test_fmm.h
+	cxxtestgen -o $@ --error-printer $^
+
+runner: runner.cpp ffm.o
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
 clean:
 	rm -f ffm-train ffm-predict ffm.o

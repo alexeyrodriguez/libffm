@@ -53,6 +53,15 @@ struct ffm_parameter
     bool auto_stop;
 };
 
+struct ffm_block_structure
+{
+    ffm_int max_feature;
+    ffm_int max_field;
+    ffm_int nr_features;
+    ffm_int *index;
+    ffm_node *features;
+};
+
 ffm_problem* ffm_read_problem(char const *path);
 
 int ffm_read_problem_to_disk(char const *txt_path, char const *bin_path);
@@ -78,6 +87,8 @@ ffm_model* ffm_train_on_disk(char const *path, struct ffm_parameter param);
 ffm_float ffm_predict(ffm_node *begin, ffm_node *end, ffm_model *model);
 
 ffm_float ffm_cross_validation(struct ffm_problem *prob, ffm_int nr_folds, struct ffm_parameter param);
+
+ffm_block_structure* ffm_read_block_structure(char const *path);
 
 #ifdef __cplusplus
 } // namespace mf

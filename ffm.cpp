@@ -1060,4 +1060,76 @@ ffm_float ffm_cross_validation(
     return loss/prob->l;
 }
 
+ffm_block_structure* ffm_read_block_structure(char const *path)
+{
+    FILE *f_block = fopen(path, "rb");
+    if(f_block == nullptr)
+      return nullptr;
+
+    char line[kMaxLineSize];
+
+    vector<ffm_int> block_index;
+    vector<ffm_node> feature_block;
+    ffm_int last_key_feature = -1;
+    ffm_int max_feature = -1;
+    ffm_int max_field = -1;
+
+    for(ffm_int i = 0; fgets(line, kMaxLineSize, f_block) != nullptr; i++)
+    {
+        char *key_f_char = strtok(line, " \t");
+        ffm_int key_feature = atoi(key_f_char);
+
+        if(key_feature <= last_key_feature) {
+            cerr << "error: block structure key features are not in strictly ascending order.";
+            fclose(f_block);
+            return nullptr;
+        }
+
+        last_key_feature = key_feature;
+        block_index.resize(key_feature+1, feature_block.size());
+
+        for(; ;)
+        {
+            char *field_char = strtok(nullptr,":");
+            char *idx_char = strtok(nullptr,":");
+            char *value_char = strtok(nullptr," \t");
+            if(field_char == nullptr || *field_char == '\n')
+                break;
+
+            ffm_int field = atoi(field_char);
+            ffm_int idx = atoi(idx_char);
+            ffm_float value = atof(value_char);
+            max_feature = max(max_feature, idx);
+            max_field = max(max_field, field);
+
+            feature_block.push_back({field, idx, value});
+        }
+    }
+
+    block_index.resize(last_key_feature+2, feature_block.size());
+    max_feature = max(max_feature, last_key_feature);
+
+    fclose(f_block);
+
+    ffm_block_structure * block = new ffm_block_structure;
+    if(block==nullptr)
+      throw bad_alloc();
+
+    block->nr_features = last_key_feature+1;
+    block->max_feature = max_feature;
+    block->max_field = max_field;
+
+    block->index = new ffm_int[block_index.size()];
+    if(block->index==nullptr)
+      throw bad_alloc();
+    std::copy(block_index.begin(), block_index.end(), block->index);
+
+    block->features = new ffm_node[feature_block.size()];
+    if(block->features==nullptr)
+      throw bad_alloc();
+    std::copy(feature_block.begin(), feature_block.end(), block->features);
+
+    return block;
+}
+
 } // namespace ffm
