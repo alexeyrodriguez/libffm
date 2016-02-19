@@ -80,9 +80,9 @@ ffm_model* ffm_train_with_validation(struct ffm_problem *Tr, struct ffm_problem 
 
 ffm_model* ffm_train(struct ffm_problem *prob, struct ffm_block_structure *bs, struct ffm_parameter param);
 
-ffm_model* ffm_train_with_validation_on_disk(char const *Tr_path, char const *Va_path, struct ffm_parameter param);
+ffm_model* ffm_train_with_validation_on_disk(char const *Tr_path, char const *Va_path, ffm_block_structure *bs, struct ffm_parameter param);
 
-ffm_model* ffm_train_on_disk(char const *path, struct ffm_parameter param);
+ffm_model* ffm_train_on_disk(char const *path, ffm_block_structure *bs, struct ffm_parameter param);
 
 ffm_float ffm_predict(ffm_node *begin, ffm_node *end, ffm_model *model);
 

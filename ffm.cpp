@@ -241,6 +241,7 @@ shared_ptr<ffm_model> train(
       n = max(n, bs->max_feature);
       m = max(m, bs->max_field);
     }
+
     shared_ptr<ffm_model> model = 
         shared_ptr<ffm_model>(init_model(n, m, param),
             [] (ffm_model *ptr) { ffm_destroy_model(&ptr); });
@@ -389,6 +390,7 @@ shared_ptr<ffm_model> train(
 shared_ptr<ffm_model> train_on_disk(
     string tr_path,
     string va_path,
+    ffm_block_structure *bs,
     ffm_parameter param)
 {
 #if defined USEOMP
@@ -407,6 +409,11 @@ shared_ptr<ffm_model> train_on_disk(
     fread(&n, sizeof(ffm_int), 1, f_tr);
     fread(&max_l, sizeof(ffm_int), 1, f_tr);
     fread(&max_nnz, sizeof(ffm_long), 1, f_tr);
+
+    if(bs!=nullptr) {
+      n = max(n, bs->max_feature);
+      m = max(m, bs->max_field);
+    }
 
     shared_ptr<ffm_model> model = 
         shared_ptr<ffm_model>(init_model(n, m, param),
@@ -451,6 +458,7 @@ shared_ptr<ffm_model> train_on_disk(
     for(ffm_int iter = 1; iter <= param.nr_iters; iter++)
     {
         ffm_double tr_loss = 0;
+        vector<ffm_node> example_row;
 
         fseek(f_tr, 3*sizeof(ffm_int)+sizeof(ffm_long), SEEK_SET);
 
@@ -476,27 +484,25 @@ shared_ptr<ffm_model> train_on_disk(
             fread(X.data(), sizeof(ffm_node), P[l], f_tr);
 
 #if defined USEOMP
-#pragma omp parallel for schedule(static) reduction(+: tr_loss)
+#pragma omp parallel for schedule(static) reduction(+: tr_loss) private(example_row)
 #endif
             for(ffm_int i = 0; i < l; i++)
             {
                 ffm_float y = Y[i];
-                
-                ffm_node *begin = &X[P[i]];
 
-                ffm_node *end = &X[P[i+1]];
+                join_features(bs, &X[P[i]], P[i+1] - P[i], example_row);
 
                 ffm_float r = param.normalization? R[i] : 1;
 
-                ffm_float t = wTx(begin, end, r, *model);
+                ffm_float t = wTx(example_row.data(), example_row.data() + example_row.size(), r, *model);
 
                 ffm_float expnyt = exp(-y*t);
 
                 tr_loss += log(1+expnyt);
-                   
+
                 ffm_float kappa = -y*expnyt/(1+expnyt);
 
-                wTx(begin, end, r, *model, kappa, param.eta, param.lambda, true);
+                wTx(example_row.data(), example_row.data() + example_row.size(), r, *model, kappa, param.eta, param.lambda, true);
             }
         }
 
@@ -537,19 +543,17 @@ shared_ptr<ffm_model> train_on_disk(
                     fread(X.data(), sizeof(ffm_node), P[l], f_va);
 
 #if defined USEOMP
-#pragma omp parallel for schedule(static) reduction(+: va_loss) reduction(+: va_accuracy)
+#pragma omp parallel for schedule(static) reduction(+: va_loss) reduction(+: va_accuracy) private(example_row)
 #endif
                     for(ffm_int i = 0; i < l; i++)
                     {
                         ffm_float y = Y[i];
-                        
-                        ffm_node *begin = &X[P[i]];
 
-                        ffm_node *end = &X[P[i+1]];
+                        join_features(bs, &X[P[i]], P[i+1] - P[i], example_row);
 
                         ffm_float r = param.normalization? R[i] : 1;
 
-                        ffm_float t = wTx(begin, end, r, *model);
+                        ffm_float t = wTx(example_row.data(), example_row.data() + example_row.size(), r, *model);
 
                         ffm_float expnyt = exp(-y*t);
 
@@ -906,9 +910,10 @@ ffm_model* ffm_train(ffm_problem *prob, ffm_parameter param, ffm_block_structure
 ffm_model* ffm_train_with_validation_on_disk(
     char const *tr_path,
     char const *va_path,
+    ffm_block_structure *bs,
     ffm_parameter param)
 {
-    shared_ptr<ffm_model> model = train_on_disk(tr_path, va_path, param);
+    shared_ptr<ffm_model> model = train_on_disk(tr_path, va_path, bs, param);
 
     ffm_model *model_ret = new ffm_model;
 
@@ -923,9 +928,9 @@ ffm_model* ffm_train_with_validation_on_disk(
     return model_ret;
 }
 
-ffm_model* ffm_train_on_disk(char const *prob_path, ffm_parameter param)
+ffm_model* ffm_train_on_disk(char const *prob_path, ffm_block_structure *bs, ffm_parameter param)
 {
-    return ffm_train_with_validation_on_disk(prob_path, "", param);
+    return ffm_train_with_validation_on_disk(prob_path, "", bs, param);
 }
 
 ffm_float ffm_predict(ffm_node *begin, ffm_node *end, ffm_model *model)

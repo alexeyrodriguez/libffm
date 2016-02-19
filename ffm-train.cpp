@@ -237,6 +237,18 @@ int train(Option opt)
 
 int train_on_disk(Option opt)
 {
+    ffm_block_structure *bs=nullptr;
+    if(opt.do_bs)
+    {
+      // XXX(AR): Destroy block structure
+      bs = ffm_read_block_structure(opt.bs_path.c_str());
+      if(bs == nullptr)
+      {
+          cerr << "cannot load " << opt.bs_path << endl << flush;
+          return 1;
+      }
+    }
+
     if(opt.param.random)
     {
         cout << "Random update is not allowed in disk-level training. Please use `--no-rand' to disable." << endl;
@@ -256,7 +268,7 @@ int train_on_disk(Option opt)
     if(!opt.va_path.empty())
         ffm_read_problem_to_disk(opt.va_path.c_str(), va_bin_path.c_str());
 
-    ffm_model *model = ffm_train_with_validation_on_disk(tr_bin_path.c_str(), va_bin_path.c_str(), opt.param);
+    ffm_model *model = ffm_train_with_validation_on_disk(tr_bin_path.c_str(), va_bin_path.c_str(), bs, opt.param);
 
     ffm_int status = ffm_save_model(model, opt.model_path.c_str());
     if(status != 0)
