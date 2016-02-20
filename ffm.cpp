@@ -207,17 +207,19 @@ void shrink_model(ffm_model &model, ffm_int k_new)
     model.k = k_new;
 }
 
-vector<ffm_float> normalize(ffm_problem &prob)
+vector<ffm_float> normalize(ffm_block_structure *bs, ffm_problem &prob)
 {
     vector<ffm_float> R(prob.l);
+    vector<ffm_node> example_row;
 #if defined USEOMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) private(example_row)
 #endif
     for(ffm_int i = 0; i < prob.l; i++)
     {
         ffm_float norm = 0;
-        for(ffm_long p = prob.P[i]; p < prob.P[i+1]; p++)
-            norm += prob.X[p].v*prob.X[p].v;
+        join_features(bs, &prob.X[prob.P[i]], prob.P[i+1] - prob.P[i], example_row);
+        for(auto p = example_row.begin(); p < example_row.end(); p++)
+            norm += p->v*p->v;
         R[i] = 1/norm;
     }
 
@@ -249,9 +251,9 @@ shared_ptr<ffm_model> train(
     vector<ffm_float> R_tr, R_va;
     if(param.normalization)
     {
-        R_tr = normalize(*tr);
+        R_tr = normalize(bs, *tr);
         if(va != nullptr)
-            R_va = normalize(*va);
+            R_va = normalize(bs, *va);
     }
     else
     {
