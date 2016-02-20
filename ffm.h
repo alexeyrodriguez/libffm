@@ -64,7 +64,7 @@ struct ffm_block_structure
 
 ffm_problem* ffm_read_problem(char const *path);
 
-int ffm_read_problem_to_disk(char const *txt_path, char const *bin_path);
+int ffm_read_problem_to_disk(ffm_block_structure *bs, char const *txt_path, char const *bin_path);
 
 void ffm_destroy_problem(struct ffm_problem **prob);
 

@@ -29,7 +29,8 @@ string train_help()
 "--no-norm: disable instance-wise normalization\n"
 "--no-rand: disable random update\n"
 "--on-disk: perform on-disk training (a temporary file <training_set_file>.bin will be generated)\n"
-"--auto-stop: stop at the iteration that achieves the best validation loss (must be used with -p)\n");
+"--auto-stop: stop at the iteration that achieves the best validation loss (must be used with -p)\n"
+"--block-structure <path>: set path to block structure\n");
 }
 
 struct Option
@@ -264,9 +265,9 @@ int train_on_disk(Option opt)
     string tr_bin_path = basename(opt.tr_path) + ".bin";
     string va_bin_path = opt.va_path.empty()? "" : basename(opt.va_path) + ".bin";
 
-    ffm_read_problem_to_disk(opt.tr_path.c_str(), tr_bin_path.c_str());
+    ffm_read_problem_to_disk(bs, opt.tr_path.c_str(), tr_bin_path.c_str());
     if(!opt.va_path.empty())
-        ffm_read_problem_to_disk(opt.va_path.c_str(), va_bin_path.c_str());
+        ffm_read_problem_to_disk(bs, opt.va_path.c_str(), va_bin_path.c_str());
 
     ffm_model *model = ffm_train_with_validation_on_disk(tr_bin_path.c_str(), va_bin_path.c_str(), bs, opt.param);
 

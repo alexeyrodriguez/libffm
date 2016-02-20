@@ -207,6 +207,15 @@ void shrink_model(ffm_model &model, ffm_int k_new)
     model.k = k_new;
 }
 
+inline ffm_float example_scale(ffm_block_structure *bs, ffm_node *p, ffm_int n, vector<ffm_node> &example_row)
+{
+    ffm_float norm = 0;
+    join_features(bs, p, n, example_row);
+    for(auto p = example_row.begin(); p < example_row.end(); p++)
+        norm += p->v*p->v;
+    return norm;
+}
+
 vector<ffm_float> normalize(ffm_block_structure *bs, ffm_problem &prob)
 {
     vector<ffm_float> R(prob.l);
@@ -215,13 +224,7 @@ vector<ffm_float> normalize(ffm_block_structure *bs, ffm_problem &prob)
 #pragma omp parallel for schedule(static) private(example_row)
 #endif
     for(ffm_int i = 0; i < prob.l; i++)
-    {
-        ffm_float norm = 0;
-        join_features(bs, &prob.X[prob.P[i]], prob.P[i+1] - prob.P[i], example_row);
-        for(auto p = example_row.begin(); p < example_row.end(); p++)
-            norm += p->v*p->v;
-        R[i] = 1/norm;
-    }
+        R[i] = 1 / example_scale(bs, &prob.X[prob.P[i]], prob.P[i+1] - prob.P[i], example_row);
 
     return R;
 }
@@ -678,7 +681,7 @@ ffm_problem* ffm_read_problem(char const *path)
     return prob;
 }
 
-int ffm_read_problem_to_disk(char const *txt_path, char const *bin_path)
+int ffm_read_problem_to_disk(ffm_block_structure *bs, char const *txt_path, char const *bin_path)
 {
     FILE *f_txt = fopen(txt_path, "r");
     if(f_txt == nullptr)
@@ -727,13 +730,14 @@ int ffm_read_problem_to_disk(char const *txt_path, char const *bin_path)
     fwrite(&max_l, sizeof(ffm_int), 1, f_bin);
     fwrite(&max_nnz, sizeof(ffm_long), 1, f_bin);
 
+    vector<ffm_node> example_row;
+
     while(fgets(line.data(), kMaxLineSize, f_txt))
     {
         char *y_char = strtok(line.data(), " \t");
 
         ffm_float y = (atoi(y_char)>0)? 1.0f : -1.0f;
 
-        ffm_float scale = 0;
         for(; ; p++)
         {
             char *field_char = strtok(nullptr,":");
@@ -751,10 +755,10 @@ int ffm_read_problem_to_disk(char const *txt_path, char const *bin_path)
 
             m = max(m, N.f+1);
             n = max(n, N.j+1);
-
-            scale += N.v*N.v;
         }
-        scale = 1/scale;
+
+        ffm_int example_size = p - P[P.size()-1];
+        ffm_float scale = 1 / example_scale(bs, &X[X.size()-example_size], example_size, example_row);
 
         Y.push_back(y);
         R.push_back(scale);
