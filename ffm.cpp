@@ -870,6 +870,16 @@ void ffm_destroy_model(ffm_model **model)
     *model = nullptr;
 }
 
+void ffm_destroy_block_structure(ffm_block_structure **bs)
+{
+    if(bs == nullptr || *bs == nullptr)
+        return;
+    delete (*bs)->index;
+    delete (*bs)->features;
+    delete *bs;
+    *bs = nullptr;
+}
+
 ffm_parameter ffm_get_default_param()
 {
     ffm_parameter param;
@@ -883,6 +893,8 @@ ffm_parameter ffm_get_default_param()
     param.normalization = true;
     param.random = true;
     param.auto_stop = false;
+    param.negative_samples = 1;
+    param.negative_position = -1;
 
     return param;
 }
@@ -1076,11 +1088,75 @@ ffm_float ffm_cross_validation(
     return loss/prob->l;
 }
 
+ffm_negative_sampling *ffm_create_negative_sampling(ffm_int negative_position, ffm_int num_negative_samples, char const *path, ffm_int n)
+{
+    ffm_negative_sampling *res = new ffm_negative_sampling;
+    if(res==nullptr)
+        throw bad_alloc();
+
+    res->num_sampling_buckets = n;
+    res->sampling_buckets = read_negative_probabilities(path, n);
+    res->negative_position = negative_position;
+    res->num_negative_samples = num_negative_samples;
+
+    return res;
+}
+
+ffm_int *read_negative_probabilities(char const *path, ffm_int n)
+{
+    FILE *f_probs = fopen(path, "rb");
+    if(f_probs == nullptr)
+        return nullptr;
+
+    char line[kMaxLineSize];
+    ffm_float total = 0.0;
+    vector< pair<ffm_int, ffm_float> > probabilities;
+
+    for(ffm_int i = 0; fgets(line, kMaxLineSize, f_probs) != nullptr; i++)
+    {
+        char *key_f_char = strtok(line, " \t");
+        char *value_char = strtok(nullptr,"\n");
+
+        if(key_f_char == nullptr || *key_f_char == '\n')
+            break;
+
+        ffm_int key_feature = atoi(key_f_char);
+        ffm_float value = atof(value_char);
+        probabilities.push_back( pair<ffm_int, ffm_float>(key_feature, value) );
+        total += value;
+    }
+
+    fclose(f_probs);
+
+    sort(probabilities.begin(), probabilities.end(),
+         [](const pair<ffm_int, ffm_float> & a, const pair<ffm_int, ffm_float> & b) -> bool
+         {
+             return a.second < b.second;
+         });
+
+    ffm_int *res = new ffm_int[n];
+    if(res==nullptr)
+        throw bad_alloc();
+
+    auto it = probabilities.begin();
+    ffm_float p = it->second / ffm_float(total);
+    for(int i=0; i<n; i++) {
+      res[i] = it->first;
+      if(i >= p * n) {
+        it++;
+        if(it==probabilities.end()) it = it-1;
+        p += it->second / ffm_float(total);
+      }
+    }
+
+    return res;
+}
+
 ffm_block_structure* ffm_read_block_structure(char const *path)
 {
     FILE *f_block = fopen(path, "rb");
     if(f_block == nullptr)
-      return nullptr;
+        return nullptr;
 
     char line[kMaxLineSize];
 
@@ -1129,7 +1205,7 @@ ffm_block_structure* ffm_read_block_structure(char const *path)
 
     ffm_block_structure * block = new ffm_block_structure;
     if(block==nullptr)
-      throw bad_alloc();
+        throw bad_alloc();
 
     block->nr_features = last_key_feature+1;
     block->max_feature = max_feature;
@@ -1137,12 +1213,12 @@ ffm_block_structure* ffm_read_block_structure(char const *path)
 
     block->index = new ffm_int[block_index.size()];
     if(block->index==nullptr)
-      throw bad_alloc();
+        throw bad_alloc();
     std::copy(block_index.begin(), block_index.end(), block->index);
 
     block->features = new ffm_node[feature_block.size()];
     if(block->features==nullptr)
-      throw bad_alloc();
+        throw bad_alloc();
     std::copy(feature_block.begin(), feature_block.end(), block->features);
 
     return block;

@@ -30,16 +30,19 @@ string train_help()
 "--no-rand: disable random update\n"
 "--on-disk: perform on-disk training (a temporary file <training_set_file>.bin will be generated)\n"
 "--auto-stop: stop at the iteration that achieves the best validation loss (must be used with -p)\n"
-"--block-structure <path>: set path to block structure\n");
+"--block-structure <path>: set path to block structure\n"
+"--negative-probabilities <path>: set path to feature negative probabilities (also enable negative sampling)"
+"--negative-samples: set number of negative samples (default 5)"
+"--negative-position: sets the position of feature to be negatively sampled");
 }
 
 struct Option
 {
     Option() : param(ffm_get_default_param()), nr_folds(1), do_cv(false), on_disk(false) {}
-    string tr_path, va_path, model_path, bs_path;
+    string tr_path, va_path, model_path, bs_path, neg_path;
     ffm_parameter param;
     ffm_int nr_folds;
-    bool do_cv, on_disk, do_bs;
+    bool do_cv, on_disk, do_bs, do_neg;
 };
 
 string basename(string path)
@@ -156,6 +159,32 @@ Option parse_option(int argc, char **argv)
             opt.bs_path = args[i].c_str();
             opt.do_bs = true;
         }
+        else if(args[i].compare("--negative-probabilities") == 0)
+        {
+            if(i == argc-1)
+                throw invalid_argument("need to specify path after --negative-probabilities");
+            i++;
+            opt.neg_path = args[i].c_str();
+            opt.do_neg = true;
+        }
+        else if(args[i].compare("--negative-samples") == 0)
+        {
+            if(i == argc-1)
+                throw invalid_argument("need to specify number of samples after --negative-samples");
+            i++;
+            opt.param.negative_samples = atoi(args[i].c_str());
+            if(opt.param.negative_samples < 1)
+              throw invalid_argument("number of negative samples should be larger than zero");
+        }
+        else if(args[i].compare("--negative-position") == 0)
+        {
+            if(i == argc-1)
+                throw invalid_argument("need to specify negative position after --negative-position");
+            i++;
+            opt.param.negative_position = atoi(args[i].c_str());
+            if(opt.param.negative_position >= 0)
+              throw invalid_argument("number of negative samples should be larger or equal to zero");
+        }
         else
         {
             break;
@@ -184,23 +213,34 @@ Option parse_option(int argc, char **argv)
     return opt;
 }
 
+const ffm_int num_negative_sampling_buckets = 1e8;
+
 int train(Option opt)
 {
+    ffm_negative_sampling *ns=nullptr;
+    if(opt.do_neg)
+    {
+        if(opt.param.negative_position<0)
+            throw invalid_argument("no negative position has been specified");
+        // XXX(AR): Destroy negative sampling
+        ns = ffm_create_negative_sampling(opt.param.negative_position, opt.param.negative_samples,
+                                          opt.neg_path.c_str(), num_negative_sampling_buckets);
+        if(ns == nullptr)
+            throw invalid_argument("cannot initialize negative sampling");
+    }
     ffm_block_structure *bs=nullptr;
     if(opt.do_bs)
     {
-      // XXX(AR): Destroy block structure
-      bs = ffm_read_block_structure(opt.bs_path.c_str());
-      if(bs == nullptr)
-      {
-          cerr << "cannot load " << opt.bs_path << endl << flush;
-          return 1;
-      }
+        // XXX(AR): Destroy block structure
+        bs = ffm_read_block_structure(opt.bs_path.c_str());
+        if(bs == nullptr)
+            throw invalid_argument("cannot load block structure");
     }
     ffm_problem *tr = ffm_read_problem(opt.tr_path.c_str());
     if(tr == nullptr)
     {
         cerr << "cannot load " << opt.tr_path << endl << flush;
+        ffm_destroy_block_structure(&bs);
         return 1;
     }
 
@@ -211,6 +251,7 @@ int train(Option opt)
         if(va == nullptr)
         {
             ffm_destroy_problem(&tr);
+            ffm_destroy_block_structure(&bs);
             cerr << "cannot load " << opt.va_path << endl << flush;
             return 1;
         }
@@ -230,6 +271,7 @@ int train(Option opt)
         ffm_destroy_model(&model);
     }
 
+    ffm_destroy_block_structure(&bs);
     ffm_destroy_problem(&tr);
     ffm_destroy_problem(&va);
 
@@ -274,11 +316,13 @@ int train_on_disk(Option opt)
     ffm_int status = ffm_save_model(model, opt.model_path.c_str());
     if(status != 0)
     {
+        ffm_destroy_block_structure(&bs);
         ffm_destroy_model(&model);
 
         return 1;
     }
 
+    ffm_destroy_block_structure(&bs);
     ffm_destroy_model(&model);
 
     return 0;

@@ -80,4 +80,35 @@ public:
         TS_ASSERT_EQUALS(11, target[2].j);
         TS_ASSERT_EQUALS(1, target[2].v);
     }
+
+    void testReadNegativeProbabilities(void)
+    {
+        ffm_int *distribution;
+        distribution = read_negative_probabilities("fixtures/negative_probabilities.txt", 20);
+        TS_ASSERT_EQUALS(distribution[0], 3);
+        TS_ASSERT_EQUALS(distribution[5], 3);
+        TS_ASSERT_EQUALS(distribution[6], 0);
+        TS_ASSERT_EQUALS(distribution[19], 0);
+    }
+
+    void testReadNegativeProbabilities2(void)
+    {
+        ffm_int *distribution;
+        distribution = read_negative_probabilities("fixtures/negative_probabilities2.txt", 10);
+        TS_ASSERT_EQUALS(distribution[0], 0);
+        TS_ASSERT_EQUALS(distribution[1], 0);
+        TS_ASSERT_EQUALS(distribution[2], 1);
+        TS_ASSERT_EQUALS(distribution[3], 3);
+        TS_ASSERT_EQUALS(distribution[4], 2);
+        TS_ASSERT_EQUALS(distribution[9], 2);
+    }
+
+    void testCreateNegativeSampling(void)
+    {
+        ffm_negative_sampling *ns = ffm_create_negative_sampling(1, 5, "fixtures/negative_probabilities2.txt", 10);
+        TS_ASSERT_EQUALS(ns->num_sampling_buckets, 10);
+        TS_ASSERT_EQUALS(ns->sampling_buckets[0], 0);
+        TS_ASSERT_EQUALS(ns->negative_position, 1);
+        TS_ASSERT_EQUALS(ns->num_negative_samples, 5);
+    }
 };

@@ -1,6 +1,7 @@
 #ifndef _LIBFFM_INTERNAL_H
 #define _LIBFFM_INTERNAL_H
 
+#include <map>
 #include "ffm.h"
 
 using namespace std;
@@ -21,6 +22,8 @@ inline void join_features(ffm_block_structure *bs, ffm_node *begin, ffm_int size
     }
   }
 }
+
+ffm_int *read_negative_probabilities(char const *path, ffm_int n);
 
 }
 

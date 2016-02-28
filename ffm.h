@@ -47,6 +47,8 @@ struct ffm_parameter
     ffm_int nr_iters;
     ffm_int k;
     ffm_int nr_threads;
+    ffm_int negative_samples;
+    ffm_int negative_position;
     bool quiet;
     bool normalization;
     bool random;
@@ -60,6 +62,14 @@ struct ffm_block_structure
     ffm_int nr_features;
     ffm_int *index;
     ffm_node *features;
+};
+
+struct ffm_negative_sampling
+{
+    ffm_int negative_position;
+    ffm_int num_negative_samples;
+    ffm_int num_sampling_buckets;
+    ffm_int *sampling_buckets;
 };
 
 ffm_problem* ffm_read_problem(char const *path);
@@ -89,6 +99,10 @@ ffm_float ffm_predict(ffm_node *begin, ffm_node *end, ffm_model *model);
 ffm_float ffm_cross_validation(struct ffm_problem *prob, ffm_int nr_folds, struct ffm_block_structure *bs, struct ffm_parameter param);
 
 ffm_block_structure* ffm_read_block_structure(char const *path);
+
+ffm_negative_sampling *ffm_create_negative_sampling(ffm_int negative_position, ffm_int num_negative_samples, char const *path, ffm_int n);
+
+void ffm_destroy_block_structure(ffm_block_structure **bs);
 
 #ifdef __cplusplus
 } // namespace mf
