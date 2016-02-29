@@ -229,6 +229,66 @@ vector<ffm_float> normalize(ffm_block_structure *bs, ffm_problem &prob)
     return R;
 }
 
+// Requires OMP number of threads to have been set before calling this function!
+void gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block_structure *bs, ffm_int num_neg,
+    ffm_float eta, ffm_float lambda, shared_ptr<ffm_model> model,
+    ffm_int l, ffm_float *Y, ffm_node *X, ffm_long *P, ffm_float *R, ffm_int *order,
+    ffm_double *target_loss, ffm_double *target_accuracy)
+{
+    vector<ffm_node> example_row;
+    ffm_double loss = 0.0;
+    ffm_double accuracy = 0.0;
+#if defined USEOMP
+#pragma omp parallel
+#endif
+    {
+       unsigned long long next_random = 0;
+
+#if defined USEOMP
+       next_random = omp_get_thread_num();
+#pragma omp for schedule(static) reduction(+: loss) reduction(+: accuracy) private(example_row)
+#endif
+    for(ffm_int ii = 0; ii < l; ii++)
+        for(ffm_int jj = 0; jj < num_neg+1; jj++)
+        {
+            ffm_int i = ii;
+            if(order!=nullptr)
+                i = order[ii];
+
+            ffm_float y = Y[i];
+
+            if(jj>0)
+                y = -1.0f;
+
+            join_features(&next_random, jj>0, ns, bs, &X[P[i]], P[i+1] - P[i], example_row);
+
+            ffm_float r = R[i];
+
+            ffm_float t = wTx(example_row.data(), example_row.data() + example_row.size(), r, *model);
+
+            ffm_float expnyt = exp(-y*t);
+
+            loss += log(1+expnyt);
+
+            if(y*t >= 0.0)
+                accuracy += 1.0;
+
+            if(update_model) {
+                ffm_float kappa = -y*expnyt/(1+expnyt);
+                wTx(example_row.data(), example_row.data() + example_row.size(), r, *model, kappa, eta, lambda, true);
+            }
+        }
+    }
+
+    if(target_loss!=nullptr)
+        *target_loss = loss / (l * (1 + num_neg));
+
+    if(target_accuracy!=nullptr)
+        *target_accuracy = accuracy / (l * (1 + num_neg));
+
+}
+
+
 shared_ptr<ffm_model> train(
     ffm_problem *tr, 
     vector<ffm_int> &order, 
@@ -305,47 +365,13 @@ shared_ptr<ffm_model> train(
         if(param.random)
             random_shuffle(order.begin(), order.end());
 
-#if defined USEOMP
-#pragma omp parallel
-#endif
-        {
-            unsigned long long next_random = 0;
-
-#if defined USEOMP
-            next_random = omp_get_thread_num();
-#pragma omp for schedule(static) reduction(+: tr_loss) private(example_row)
-#endif
-        for(ffm_int ii = 0; ii < tr->l; ii++)
-            for(ffm_int jj = 0; jj < num_neg+1; jj++)
-        {
-            ffm_int i = order[ii];
-
-            ffm_float y = tr->Y[i];
-
-            if(jj>0)
-                y = -1.0f;
-
-            join_features(&next_random, jj>0, ns, bs, &tr->X[tr->P[i]], tr->P[i+1] - tr->P[i], example_row);
-
-            ffm_float r = R_tr[i];
-
-            ffm_float t = wTx(example_row.data(), example_row.data() + example_row.size(), r, *model);
-
-            ffm_float expnyt = exp(-y*t);
-
-            tr_loss += log(1+expnyt);
-
-            ffm_float kappa = -y*expnyt/(1+expnyt);
-
-            wTx(example_row.data(), example_row.data() + example_row.size(), r, *model, kappa, param.eta, param.lambda, true);
-        }
-
-        }
+        gradient_descent(true, ns, bs, num_neg,
+            param.eta, param.lambda, model,
+            tr->l, tr->Y, tr->X, tr->P, R_tr.data(), order.data(),
+            &tr_loss, nullptr);
 
         if(!param.quiet)
         {
-            tr_loss /= tr->l * (1 + num_neg);
-
             cout.width(4);
             cout << iter;
             cout.width(13);
@@ -355,41 +381,10 @@ shared_ptr<ffm_model> train(
                 ffm_double va_loss = 0;
                 ffm_double va_accuracy = 0;
 
-#if defined USEOMP
-#pragma omp parallel
-#endif
-                {
-                    unsigned long long next_random = 0;
-
-#if defined USEOMP
-#pragma omp for schedule(static) reduction(+:va_loss) reduction(+:va_accuracy) private(example_row)
-#endif
-                for(ffm_int i = 0; i < va->l; i++)
-                    for(ffm_int jj = 0; jj < num_neg+1; jj++)
-                {
-                    ffm_float y = va->Y[i];
-
-                    if(jj>0)
-                        y = -1.0f;
-
-                    join_features(&next_random, jj>0, ns, bs, &va->X[va->P[i]], va->P[i+1] - va->P[i], example_row);
-
-                    ffm_float r = R_va[i];
-
-                    ffm_float t = wTx(example_row.data(), example_row.data() + example_row.size(), r, *model);
-
-                    ffm_float expnyt = exp(-y*t);
-
-                    va_loss += log(1+expnyt);
-
-                    if(y*t >= 0)
-                        va_accuracy += 1;
-                }
-
-                }
-
-                va_loss /= va->l * (1 + num_neg);
-                va_accuracy /= va->l * (1 + num_neg);
+                gradient_descent(false, ns, bs, num_neg,
+                    param.eta, param.lambda, model,
+                    va->l, va->Y, va->X, va->P, R_va.data(), nullptr,
+                    &va_loss, &va_accuracy);
 
                 cout.width(13);
                 cout << fixed << setprecision(5) << va_loss;
