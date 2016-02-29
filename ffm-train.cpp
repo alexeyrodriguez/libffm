@@ -31,9 +31,9 @@ string train_help()
 "--on-disk: perform on-disk training (a temporary file <training_set_file>.bin will be generated)\n"
 "--auto-stop: stop at the iteration that achieves the best validation loss (must be used with -p)\n"
 "--block-structure <path>: set path to block structure\n"
-"--negative-probabilities <path>: set path to feature negative probabilities (also enable negative sampling)"
-"--negative-samples: set number of negative samples (default 5)"
-"--negative-position: sets the position of feature to be negatively sampled");
+"--negative-probabilities <path>: set path to feature negative probabilities (also enable negative sampling)\n"
+"--negative-samples: set number of negative samples (default 5)\n"
+"--negative-position: sets the position of feature to be negatively sampled\n");
 }
 
 struct Option
@@ -182,8 +182,8 @@ Option parse_option(int argc, char **argv)
                 throw invalid_argument("need to specify negative position after --negative-position");
             i++;
             opt.param.negative_position = atoi(args[i].c_str());
-            if(opt.param.negative_position >= 0)
-              throw invalid_argument("number of negative samples should be larger or equal to zero");
+            if(opt.param.negative_position < 0)
+              throw invalid_argument("negative position should be larger or equal to zero");
         }
         else
         {
@@ -260,11 +260,11 @@ int train(Option opt)
     int status = 0;
     if(opt.do_cv)
     {
-        ffm_cross_validation(tr, opt.nr_folds, bs, opt.param);
+        ffm_cross_validation(tr, opt.nr_folds, ns, bs, opt.param);
     }
     else
     {
-        ffm_model *model = ffm_train_with_validation(tr, va, bs, opt.param);
+        ffm_model *model = ffm_train_with_validation(tr, va, ns, bs, opt.param);
 
         status = ffm_save_model(model, opt.model_path.c_str());
 

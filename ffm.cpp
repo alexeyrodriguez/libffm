@@ -232,6 +232,7 @@ vector<ffm_float> normalize(ffm_block_structure *bs, ffm_problem &prob)
 shared_ptr<ffm_model> train(
     ffm_problem *tr, 
     vector<ffm_int> &order, 
+    ffm_negative_sampling *ns,
     ffm_block_structure *bs,
     ffm_parameter param, 
     ffm_problem *va=nullptr)
@@ -246,6 +247,10 @@ shared_ptr<ffm_model> train(
       n = max(n, bs->max_feature);
       m = max(m, bs->max_field);
     }
+
+    ffm_int num_neg = 0;
+    if(ns!=nullptr)
+        num_neg = ns->num_negative_samples;
 
     shared_ptr<ffm_model> model = 
         shared_ptr<ffm_model>(init_model(n, m, param),
@@ -299,16 +304,28 @@ shared_ptr<ffm_model> train(
         vector<ffm_node> example_row;
         if(param.random)
             random_shuffle(order.begin(), order.end());
+
 #if defined USEOMP
-#pragma omp parallel for schedule(static) reduction(+: tr_loss) private(example_row)
+#pragma omp parallel
+#endif
+        {
+            unsigned long long next_random = 0;
+
+#if defined USEOMP
+            next_random = omp_get_thread_num();
+#pragma omp for schedule(static) reduction(+: tr_loss) private(example_row)
 #endif
         for(ffm_int ii = 0; ii < tr->l; ii++)
+            for(ffm_int jj = 0; jj < num_neg+1; jj++)
         {
             ffm_int i = order[ii];
 
             ffm_float y = tr->Y[i];
 
-            join_features(bs, &tr->X[tr->P[i]], tr->P[i+1] - tr->P[i], example_row);
+            if(jj>0)
+                y = -1.0f;
+
+            join_features(&next_random, jj>0, ns, bs, &tr->X[tr->P[i]], tr->P[i+1] - tr->P[i], example_row);
 
             ffm_float r = R_tr[i];
 
@@ -323,9 +340,11 @@ shared_ptr<ffm_model> train(
             wTx(example_row.data(), example_row.data() + example_row.size(), r, *model, kappa, param.eta, param.lambda, true);
         }
 
+        }
+
         if(!param.quiet)
         {
-            tr_loss /= tr->l;
+            tr_loss /= tr->l * (1 + num_neg);
 
             cout.width(4);
             cout << iter;
@@ -335,14 +354,25 @@ shared_ptr<ffm_model> train(
             {
                 ffm_double va_loss = 0;
                 ffm_double va_accuracy = 0;
+
 #if defined USEOMP
-#pragma omp parallel for schedule(static) reduction(+:va_loss) reduction(+:va_accuracy) private(example_row)
+#pragma omp parallel
+#endif
+                {
+                    unsigned long long next_random = 0;
+
+#if defined USEOMP
+#pragma omp for schedule(static) reduction(+:va_loss) reduction(+:va_accuracy) private(example_row)
 #endif
                 for(ffm_int i = 0; i < va->l; i++)
+                    for(ffm_int jj = 0; jj < num_neg+1; jj++)
                 {
                     ffm_float y = va->Y[i];
 
-                    join_features(bs, &va->X[va->P[i]], va->P[i+1] - va->P[i], example_row);
+                    if(jj>0)
+                        y = -1.0f;
+
+                    join_features(&next_random, jj>0, ns, bs, &va->X[va->P[i]], va->P[i+1] - va->P[i], example_row);
 
                     ffm_float r = R_va[i];
 
@@ -355,8 +385,11 @@ shared_ptr<ffm_model> train(
                     if(y*t >= 0)
                         va_accuracy += 1;
                 }
-                va_loss /= va->l;
-                va_accuracy /= va->l;
+
+                }
+
+                va_loss /= va->l * (1 + num_neg);
+                va_accuracy /= va->l * (1 + num_neg);
 
                 cout.width(13);
                 cout << fixed << setprecision(5) << va_loss;
@@ -899,13 +932,13 @@ ffm_parameter ffm_get_default_param()
     return param;
 }
 
-ffm_model* ffm_train_with_validation(ffm_problem *tr, ffm_problem *va, ffm_block_structure *bs, ffm_parameter param)
+ffm_model* ffm_train_with_validation(ffm_problem *tr, ffm_problem *va, ffm_negative_sampling *ns, ffm_block_structure *bs, ffm_parameter param)
 {
     vector<ffm_int> order(tr->l);
     for(ffm_int i = 0; i < tr->l; i++)
         order[i] = i;
 
-    shared_ptr<ffm_model> model = train(tr, order, bs, param, va);
+    shared_ptr<ffm_model> model = train(tr, order, ns, bs, param, va);
 
     ffm_model *model_ret = new ffm_model;
 
@@ -920,9 +953,9 @@ ffm_model* ffm_train_with_validation(ffm_problem *tr, ffm_problem *va, ffm_block
     return model_ret;
 }
 
-ffm_model* ffm_train(ffm_problem *prob, ffm_parameter param, ffm_block_structure *bs)
+ffm_model* ffm_train(ffm_problem *prob, ffm_parameter param, ffm_negative_sampling *ns, ffm_block_structure *bs)
 {
-    return ffm_train_with_validation(prob, nullptr, bs, param);
+    return ffm_train_with_validation(prob, nullptr, ns, bs, param);
 }
 
 ffm_model* ffm_train_with_validation_on_disk(
@@ -998,6 +1031,7 @@ ffm_float ffm_predict(ffm_node *begin, ffm_node *end, ffm_model *model)
 ffm_float ffm_cross_validation(
     ffm_problem *prob, 
     ffm_int nr_folds,
+    ffm_negative_sampling *ns,
     ffm_block_structure *bs,
     ffm_parameter param)
 {
@@ -1036,7 +1070,7 @@ ffm_float ffm_cross_validation(
         for(ffm_int i = end; i < prob->l; i++)
             order1.push_back(order[i]);
 
-        shared_ptr<ffm_model> model = train(prob, order1, bs, param);
+        shared_ptr<ffm_model> model = train(prob, order1, ns, bs, param);
 
         ffm_double loss1 = 0;
 #if defined USEOMP

@@ -73,6 +73,7 @@ public:
         TS_ASSERT_EQUALS(source[1].f, target[3].f);
         TS_ASSERT_EQUALS(source[1].j, target[3].j);
         TS_ASSERT_EQUALS(source[1].v, target[3].v);
+        // Joined data
         TS_ASSERT_EQUALS(0, target[1].f);
         TS_ASSERT_EQUALS(10, target[1].j);
         TS_ASSERT_EQUALS(1, target[1].v);
@@ -105,10 +106,38 @@ public:
 
     void testCreateNegativeSampling(void)
     {
-        ffm_negative_sampling *ns = ffm_create_negative_sampling(1, 5, "fixtures/negative_probabilities2.txt", 10);
+        ffm_negative_sampling *ns = ffm_create_negative_sampling(0, 5, "fixtures/negative_probabilities2.txt", 10);
         TS_ASSERT_EQUALS(ns->num_sampling_buckets, 10);
         TS_ASSERT_EQUALS(ns->sampling_buckets[0], 0);
-        TS_ASSERT_EQUALS(ns->negative_position, 1);
+        TS_ASSERT_EQUALS(ns->negative_position, 0);
         TS_ASSERT_EQUALS(ns->num_negative_samples, 5);
+    }
+
+    void testJoinFeaturesUseBlockStructureAndNegativeSampling(void)
+    {
+        unsigned long long next_random = 3;
+        ffm_negative_sampling *ns = ffm_create_negative_sampling(0, 5, "fixtures/negative_probabilities.txt", 10);
+        vector<ffm_node> source;
+        source.push_back({0, 0, 1}); // To be discarded and sampled
+        source.push_back({0, 2, 1});
+        vector<ffm_node> target;
+        ffm_block_structure* bs = ffm_read_block_structure("fixtures/block_structure.txt");
+
+        join_features(&next_random, true, ns, bs, source.data(), source.size(), target);
+
+        TS_ASSERT_EQUALS(target.size(), 4);
+        TS_ASSERT_EQUALS(source[0].f, target[0].f);
+        TS_ASSERT_EQUALS(3, target[0].j); // negative sample 3
+        TS_ASSERT_EQUALS(source[0].v, target[0].v);
+        TS_ASSERT_EQUALS(source[1].f, target[3].f);
+        TS_ASSERT_EQUALS(source[1].j, target[3].j);
+        TS_ASSERT_EQUALS(source[1].v, target[3].v);
+        // Joined with negative sample 3
+        TS_ASSERT_EQUALS(0, target[1].f);
+        TS_ASSERT_EQUALS(13, target[1].j);
+        TS_ASSERT_EQUALS(1, target[1].v);
+        TS_ASSERT_EQUALS(1, target[2].f);
+        TS_ASSERT_EQUALS(11, target[2].j);
+        TS_ASSERT_EQUALS(1, target[2].v);
     }
 };
