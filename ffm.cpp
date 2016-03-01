@@ -262,7 +262,7 @@ void gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block_st
 
             join_features(&next_random, jj>0, ns, bs, &X[P[i]], P[i+1] - P[i], example_row);
 
-            ffm_float r = R[i];
+            ffm_float r = R == nullptr ? 1.0 : R[i];
 
             ffm_float t = wTx(example_row.data(), example_row.data() + example_row.size(), r, *model);
 
@@ -281,10 +281,10 @@ void gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block_st
     }
 
     if(target_loss!=nullptr)
-        *target_loss = loss / (l * (1 + num_neg));
+        *target_loss += loss;
 
     if(target_accuracy!=nullptr)
-        *target_accuracy = accuracy / (l * (1 + num_neg));
+        *target_accuracy += accuracy;
 
 }
 
@@ -370,6 +370,8 @@ shared_ptr<ffm_model> train(
             tr->l, tr->Y, tr->X, tr->P, R_tr.data(), order.data(),
             &tr_loss, nullptr);
 
+        tr_loss /= tr->l * (1 + num_neg);
+
         if(!param.quiet)
         {
             cout.width(4);
@@ -385,6 +387,9 @@ shared_ptr<ffm_model> train(
                     param.eta, param.lambda, model,
                     va->l, va->Y, va->X, va->P, R_va.data(), nullptr,
                     &va_loss, &va_accuracy);
+
+                va_loss /= va->l * (1 + num_neg);
+                va_accuracy /= va->l * (1 + num_neg);
 
                 cout.width(13);
                 cout << fixed << setprecision(5) << va_loss;
@@ -423,6 +428,7 @@ shared_ptr<ffm_model> train(
 shared_ptr<ffm_model> train_on_disk(
     string tr_path,
     string va_path,
+    ffm_negative_sampling *ns,
     ffm_block_structure *bs,
     ffm_parameter param)
 {
@@ -447,6 +453,10 @@ shared_ptr<ffm_model> train_on_disk(
       n = max(n, bs->max_feature);
       m = max(m, bs->max_field);
     }
+
+    ffm_int num_neg = 0;
+    if(ns!=nullptr)
+        num_neg = ns->num_negative_samples;
 
     shared_ptr<ffm_model> model = 
         shared_ptr<ffm_model>(init_model(n, m, param),
@@ -516,32 +526,18 @@ shared_ptr<ffm_model> train_on_disk(
             X.resize(P[l]);
             fread(X.data(), sizeof(ffm_node), P[l], f_tr);
 
-#if defined USEOMP
-#pragma omp parallel for schedule(static) reduction(+: tr_loss) private(example_row)
-#endif
-            for(ffm_int i = 0; i < l; i++)
-            {
-                ffm_float y = Y[i];
+            ffm_float *rdata = param.normalization ? R.data() : nullptr;
 
-                join_features(bs, &X[P[i]], P[i+1] - P[i], example_row);
+            gradient_descent(true, ns, bs, num_neg,
+                param.eta, param.lambda, model,
+                l, Y.data(), X.data(), P.data(), rdata, nullptr,
+                &tr_loss, nullptr);
 
-                ffm_float r = param.normalization? R[i] : 1;
-
-                ffm_float t = wTx(example_row.data(), example_row.data() + example_row.size(), r, *model);
-
-                ffm_float expnyt = exp(-y*t);
-
-                tr_loss += log(1+expnyt);
-
-                ffm_float kappa = -y*expnyt/(1+expnyt);
-
-                wTx(example_row.data(), example_row.data() + example_row.size(), r, *model, kappa, param.eta, param.lambda, true);
-            }
         }
 
         if(!param.quiet)
         {
-            tr_loss /= tr_l;
+            tr_loss /= tr_l * (1 + num_neg);
 
             cout.width(4);
             cout << iter;
@@ -575,29 +571,17 @@ shared_ptr<ffm_model> train_on_disk(
                     vector<ffm_node> X(P[l]);
                     fread(X.data(), sizeof(ffm_node), P[l], f_va);
 
-#if defined USEOMP
-#pragma omp parallel for schedule(static) reduction(+: va_loss) reduction(+: va_accuracy) private(example_row)
-#endif
-                    for(ffm_int i = 0; i < l; i++)
-                    {
-                        ffm_float y = Y[i];
+                    ffm_float *rdata = param.normalization ? R.data() : nullptr;
 
-                        join_features(bs, &X[P[i]], P[i+1] - P[i], example_row);
+                    gradient_descent(false, ns, bs, num_neg,
+                        param.eta, param.lambda, model,
+                        l, Y.data(), X.data(), P.data(), rdata, nullptr,
+                        &va_loss, &va_accuracy);
 
-                        ffm_float r = param.normalization? R[i] : 1;
-
-                        ffm_float t = wTx(example_row.data(), example_row.data() + example_row.size(), r, *model);
-
-                        ffm_float expnyt = exp(-y*t);
-
-                        va_loss += log(1+expnyt);
-
-                        if(y*t >= 0)
-                            va_accuracy += 1;
-                    }
                 }
-                va_loss /= va_l;
-                va_accuracy /= va_l;
+
+                va_loss /= va_l * (1 + num_neg);
+                va_accuracy /= va_l * (1 + num_neg);
 
                 cout.width(13);
                 cout << fixed << setprecision(5) << va_loss;
@@ -956,10 +940,11 @@ ffm_model* ffm_train(ffm_problem *prob, ffm_parameter param, ffm_negative_sampli
 ffm_model* ffm_train_with_validation_on_disk(
     char const *tr_path,
     char const *va_path,
+    ffm_negative_sampling *ns,
     ffm_block_structure *bs,
     ffm_parameter param)
 {
-    shared_ptr<ffm_model> model = train_on_disk(tr_path, va_path, bs, param);
+    shared_ptr<ffm_model> model = train_on_disk(tr_path, va_path, ns, bs, param);
 
     ffm_model *model_ret = new ffm_model;
 
@@ -974,9 +959,9 @@ ffm_model* ffm_train_with_validation_on_disk(
     return model_ret;
 }
 
-ffm_model* ffm_train_on_disk(char const *prob_path, ffm_block_structure *bs, ffm_parameter param)
+ffm_model* ffm_train_on_disk(char const *prob_path, ffm_negative_sampling *ns, ffm_block_structure *bs, ffm_parameter param)
 {
-    return ffm_train_with_validation_on_disk(prob_path, "", bs, param);
+    return ffm_train_with_validation_on_disk(prob_path, "", ns, bs, param);
 }
 
 ffm_float ffm_predict(ffm_node *begin, ffm_node *end, ffm_model *model)

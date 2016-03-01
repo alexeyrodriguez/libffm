@@ -280,6 +280,17 @@ int train(Option opt)
 
 int train_on_disk(Option opt)
 {
+    ffm_negative_sampling *ns=nullptr;
+    if(opt.do_neg)
+    {
+        if(opt.param.negative_position<0)
+            throw invalid_argument("no negative position has been specified");
+        // XXX(AR): Destroy negative sampling
+        ns = ffm_create_negative_sampling(opt.param.negative_position, opt.param.negative_samples,
+                                          opt.neg_path.c_str(), num_negative_sampling_buckets);
+        if(ns == nullptr)
+            throw invalid_argument("cannot initialize negative sampling");
+    }
     ffm_block_structure *bs=nullptr;
     if(opt.do_bs)
     {
@@ -311,7 +322,7 @@ int train_on_disk(Option opt)
     if(!opt.va_path.empty())
         ffm_read_problem_to_disk(bs, opt.va_path.c_str(), va_bin_path.c_str());
 
-    ffm_model *model = ffm_train_with_validation_on_disk(tr_bin_path.c_str(), va_bin_path.c_str(), bs, opt.param);
+    ffm_model *model = ffm_train_with_validation_on_disk(tr_bin_path.c_str(), va_bin_path.c_str(), ns, bs, opt.param);
 
     ffm_int status = ffm_save_model(model, opt.model_path.c_str());
     if(status != 0)
