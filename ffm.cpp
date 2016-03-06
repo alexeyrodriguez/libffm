@@ -132,6 +132,262 @@ inline ffm_float wTx(
     return t;
 }
 
+// Requires OMP number of threads to have been set before calling this function!
+void gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block_structure *bs, ffm_int num_neg,
+    ffm_float eta, ffm_float lambda, shared_ptr<ffm_model> model,
+    ffm_int l, ffm_float *Y, ffm_node *X, ffm_long *P, ffm_float *R, ffm_int *order,
+    ffm_double *target_loss, ffm_double *target_accuracy)
+{
+    vector<ffm_node> example_row;
+    ffm_double loss = 0.0;
+    ffm_double accuracy = 0.0;
+#if defined USEOMP
+#pragma omp parallel
+#endif
+    {
+       unsigned long long next_random = 0;
+
+#if defined USEOMP
+       next_random = omp_get_thread_num();
+#pragma omp for schedule(static) reduction(+: loss) reduction(+: accuracy) private(example_row)
+#endif
+    for(ffm_int ii = 0; ii < l; ii++)
+        for(ffm_int jj = 0; jj < num_neg+1; jj++)
+        {
+            ffm_int i = ii;
+            if(order!=nullptr)
+                i = order[ii];
+
+            ffm_float y = Y[i];
+
+            if(jj>0)
+                y = -1.0f;
+
+            join_features(&next_random, jj>0, ns, bs, &X[P[i]], P[i+1] - P[i], example_row);
+
+            ffm_float r = R == nullptr ? 1.0 : R[i];
+
+            ffm_float t = wTx(example_row.data(), example_row.data() + example_row.size(), r, *model);
+
+            ffm_float expnyt = exp(-y*t);
+
+            loss += log(1+expnyt);
+
+            if(y*t >= 0.0)
+                accuracy += 1.0;
+
+            if(update_model) {
+                ffm_float kappa = -y*expnyt/(1+expnyt);
+                wTx(example_row.data(), example_row.data() + example_row.size(), r, *model, kappa, eta, lambda, true);
+            }
+        }
+    }
+
+    if(target_loss!=nullptr)
+        *target_loss += loss;
+
+    if(target_accuracy!=nullptr)
+        *target_accuracy += accuracy;
+
+}
+
+inline ffm_float bs_wTx(
+    ffm_block_structure *bs,
+    ffm_node *begin,
+    ffm_node *end,
+    ffm_float r,
+    ffm_model &model, 
+    ffm_float kappa=0, 
+    ffm_float eta=0, 
+    ffm_float lambda=0, 
+    bool do_update=false)
+{
+    ffm_long align0 = (ffm_long)model.k*2;
+    ffm_long align1 = (ffm_long)model.m*align0;
+
+    __m128 XMMkappa = _mm_set1_ps(kappa);
+    __m128 XMMeta = _mm_set1_ps(eta);
+    __m128 XMMlambda = _mm_set1_ps(lambda);
+
+    __m128 XMMt = _mm_setzero_ps();
+
+    for(ffm_node *N1 = begin; N1 != end; N1++)
+    {
+        ffm_int j1 = N1->j;
+        ffm_int f1 = N1->f;
+        ffm_float v1 = N1->v;
+        if(j1 >= model.n || f1 >= model.m)
+            continue;
+
+        for(ffm_node *N2 = N1+1; N2 != end; N2++)
+        {
+            ffm_int j2 = N2->j;
+            ffm_int f2 = N2->f;
+            ffm_float v2 = N2->v;
+            if(j2 >= model.n || f2 >= model.m)
+                continue;
+
+            ffm_int base1 = bs->index[j1];
+            ffm_int joined1 = 0;
+            if(bs!= nullptr && j1 < bs->nr_features)
+                joined1 = bs->index[j1+1] - base1;
+
+            for(ffm_int i1=0; i1<(1+joined1); i1++)
+            {
+                ffm_int jj1 = i1==0? j1 : bs->features[base1+i1-1].j;
+                ffm_int ff1 = i1==0? f1 : bs->features[base1+i1-1].f;
+                ffm_int vv1 = i1==0? v1 : bs->features[base1+i1-1].v;
+
+                ffm_int base2 = bs->index[j2];
+                ffm_int joined2 = 0;
+                if(bs!= nullptr && j2 < bs->nr_features)
+                    joined2 = bs->index[j2+1] - base2;
+
+                for(ffm_int i2=0; i2<(1+joined2); i2++)
+                {
+                    ffm_int jj2 = i2==0? j2 : bs->features[base2+i2-1].j;
+                    ffm_int ff2 = i2==0? f2 : bs->features[base2+i2-1].f;
+                    ffm_int vv2 = i2==0? v2 : bs->features[base2+i2-1].v;
+
+                    ffm_float *w1 = model.W + jj1*align1 + ff2*align0;
+                    ffm_float *w2 = model.W + jj2*align1 + ff1*align0;
+
+                    __m128 XMMv = _mm_set1_ps(vv1*vv2*r);
+
+                    if(do_update)
+                    {
+                        __m128 XMMkappav = _mm_mul_ps(XMMkappa, XMMv);
+
+                        ffm_float *wg1 = w1 + model.k;
+                        ffm_float *wg2 = w2 + model.k;
+                        for(ffm_int d = 0; d < model.k; d += 4)
+                        {
+                            __m128 XMMw1 = _mm_load_ps(w1+d);
+                            __m128 XMMw2 = _mm_load_ps(w2+d);
+
+                            __m128 XMMwg1 = _mm_load_ps(wg1+d);
+                            __m128 XMMwg2 = _mm_load_ps(wg2+d);
+
+                            __m128 XMMg1 = _mm_add_ps(
+                                           _mm_mul_ps(XMMlambda, XMMw1),
+                                           _mm_mul_ps(XMMkappav, XMMw2));
+                            __m128 XMMg2 = _mm_add_ps(
+                                           _mm_mul_ps(XMMlambda, XMMw2),
+                                           _mm_mul_ps(XMMkappav, XMMw1));
+
+                            XMMwg1 = _mm_add_ps(XMMwg1, _mm_mul_ps(XMMg1, XMMg1));
+                            XMMwg2 = _mm_add_ps(XMMwg2, _mm_mul_ps(XMMg2, XMMg2));
+
+                            XMMw1 = _mm_sub_ps(XMMw1, _mm_mul_ps(XMMeta, 
+                                    _mm_mul_ps(_mm_rsqrt_ps(XMMwg1), XMMg1)));
+                            XMMw2 = _mm_sub_ps(XMMw2, _mm_mul_ps(XMMeta, 
+                                    _mm_mul_ps(_mm_rsqrt_ps(XMMwg2), XMMg2)));
+
+                            _mm_store_ps(w1+d, XMMw1);
+                            _mm_store_ps(w2+d, XMMw2);
+
+                            _mm_store_ps(wg1+d, XMMwg1);
+                            _mm_store_ps(wg2+d, XMMwg2);
+                        }
+                    }
+                    else
+                    {
+                        for(ffm_int d = 0; d < model.k; d += 4)
+                        {
+                            __m128  XMMw1 = _mm_load_ps(w1+d);
+                            __m128  XMMw2 = _mm_load_ps(w2+d);
+
+                            XMMt = _mm_add_ps(XMMt, 
+                                   _mm_mul_ps(_mm_mul_ps(XMMw1, XMMw2), XMMv));
+                        }
+                    }
+
+                }
+
+
+            }
+
+        }
+    }
+
+    if(do_update)
+        return 0;
+
+    XMMt = _mm_hadd_ps(XMMt, XMMt);
+    XMMt = _mm_hadd_ps(XMMt, XMMt);
+    ffm_float t;
+    _mm_store_ss(&t, XMMt);
+
+    return t;
+}
+
+// Requires OMP number of threads to have been set before calling this function!
+void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block_structure *bs, ffm_int num_neg,
+    ffm_float eta, ffm_float lambda, shared_ptr<ffm_model> model,
+    ffm_int l, ffm_float *Y, ffm_node *X, ffm_long *P, ffm_float *R, ffm_int *order,
+    ffm_double *target_loss, ffm_double *target_accuracy)
+{
+    vector<ffm_node> example_row;
+    ffm_double loss = 0.0;
+    ffm_double accuracy = 0.0;
+#if defined USEOMP
+#pragma omp parallel
+#endif
+    {
+       unsigned long long next_random = 0;
+
+#if defined USEOMP
+       next_random = omp_get_thread_num();
+#pragma omp for schedule(static) reduction(+: loss) reduction(+: accuracy) private(example_row)
+#endif
+    for(ffm_int ii = 0; ii < l; ii++)
+    {
+        ffm_int i = ii;
+        if(order!=nullptr)
+            i = order[ii];
+
+        example_row.resize(P[i+1] - P[i]);
+        copy(&X[P[i]], &X[P[i+1]], example_row.begin());
+
+        for(ffm_int jj = 0; jj < num_neg+1; jj++)
+        {
+
+            ffm_float y = Y[i];
+
+            if(jj>0) // negative sampling
+            {
+                next_random = next_random * (unsigned long long)25214903917 + 11;
+                example_row[ns->negative_position].j = ns->sampling_buckets[next_random % ns->num_sampling_buckets];
+                y = -1.0f;
+            }
+
+            ffm_float r = R == nullptr ? 1.0 : R[i];
+
+            ffm_float t = bs_wTx(bs, example_row.data(), example_row.data() + example_row.size(), r, *model);
+
+            ffm_float expnyt = exp(-y*t);
+
+            loss += log(1+expnyt);
+
+            if(y*t >= 0.0)
+                accuracy += 1.0;
+
+            if(update_model) {
+                ffm_float kappa = -y*expnyt/(1+expnyt);
+                bs_wTx(bs, example_row.data(), example_row.data() + example_row.size(), r, *model, kappa, eta, lambda, true);
+            }
+        }
+    }
+    }
+
+    if(target_loss!=nullptr)
+        *target_loss += loss;
+
+    if(target_accuracy!=nullptr)
+        *target_accuracy += accuracy;
+
+}
+
 ffm_float* malloc_aligned_float(ffm_long size)
 {
     void *ptr;
@@ -229,66 +485,6 @@ vector<ffm_float> normalize(ffm_block_structure *bs, ffm_problem &prob)
     return R;
 }
 
-// Requires OMP number of threads to have been set before calling this function!
-void gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block_structure *bs, ffm_int num_neg,
-    ffm_float eta, ffm_float lambda, shared_ptr<ffm_model> model,
-    ffm_int l, ffm_float *Y, ffm_node *X, ffm_long *P, ffm_float *R, ffm_int *order,
-    ffm_double *target_loss, ffm_double *target_accuracy)
-{
-    vector<ffm_node> example_row;
-    ffm_double loss = 0.0;
-    ffm_double accuracy = 0.0;
-#if defined USEOMP
-#pragma omp parallel
-#endif
-    {
-       unsigned long long next_random = 0;
-
-#if defined USEOMP
-       next_random = omp_get_thread_num();
-#pragma omp for schedule(static) reduction(+: loss) reduction(+: accuracy) private(example_row)
-#endif
-    for(ffm_int ii = 0; ii < l; ii++)
-        for(ffm_int jj = 0; jj < num_neg+1; jj++)
-        {
-            ffm_int i = ii;
-            if(order!=nullptr)
-                i = order[ii];
-
-            ffm_float y = Y[i];
-
-            if(jj>0)
-                y = -1.0f;
-
-            join_features(&next_random, jj>0, ns, bs, &X[P[i]], P[i+1] - P[i], example_row);
-
-            ffm_float r = R == nullptr ? 1.0 : R[i];
-
-            ffm_float t = wTx(example_row.data(), example_row.data() + example_row.size(), r, *model);
-
-            ffm_float expnyt = exp(-y*t);
-
-            loss += log(1+expnyt);
-
-            if(y*t >= 0.0)
-                accuracy += 1.0;
-
-            if(update_model) {
-                ffm_float kappa = -y*expnyt/(1+expnyt);
-                wTx(example_row.data(), example_row.data() + example_row.size(), r, *model, kappa, eta, lambda, true);
-            }
-        }
-    }
-
-    if(target_loss!=nullptr)
-        *target_loss += loss;
-
-    if(target_accuracy!=nullptr)
-        *target_accuracy += accuracy;
-
-}
-
-
 shared_ptr<ffm_model> train(
     ffm_problem *tr, 
     vector<ffm_int> &order, 
@@ -365,7 +561,7 @@ shared_ptr<ffm_model> train(
         if(param.random)
             random_shuffle(order.begin(), order.end());
 
-        gradient_descent(true, ns, bs, num_neg,
+        bs_gradient_descent(true, ns, bs, num_neg,
             param.eta, param.lambda, model,
             tr->l, tr->Y, tr->X, tr->P, R_tr.data(), order.data(),
             &tr_loss, nullptr);
@@ -383,7 +579,7 @@ shared_ptr<ffm_model> train(
                 ffm_double va_loss = 0;
                 ffm_double va_accuracy = 0;
 
-                gradient_descent(false, ns, bs, num_neg,
+                bs_gradient_descent(false, ns, bs, num_neg,
                     param.eta, param.lambda, model,
                     va->l, va->Y, va->X, va->P, R_va.data(), nullptr,
                     &va_loss, &va_accuracy);
@@ -528,7 +724,7 @@ shared_ptr<ffm_model> train_on_disk(
 
             ffm_float *rdata = param.normalization ? R.data() : nullptr;
 
-            gradient_descent(true, ns, bs, num_neg,
+            bs_gradient_descent(true, ns, bs, num_neg,
                 param.eta, param.lambda, model,
                 l, Y.data(), X.data(), P.data(), rdata, nullptr,
                 &tr_loss, nullptr);
@@ -573,7 +769,7 @@ shared_ptr<ffm_model> train_on_disk(
 
                     ffm_float *rdata = param.normalization ? R.data() : nullptr;
 
-                    gradient_descent(false, ns, bs, num_neg,
+                    bs_gradient_descent(false, ns, bs, num_neg,
                         param.eta, param.lambda, model,
                         l, Y.data(), X.data(), P.data(), rdata, nullptr,
                         &va_loss, &va_accuracy);
