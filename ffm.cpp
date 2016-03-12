@@ -227,10 +227,12 @@ inline ffm_float bs_wTx(
             if(j2 >= model.n || f2 >= model.m)
                 continue;
 
-            ffm_int base1 = bs->index[j1];
+            ffm_int base1 = 0;
             ffm_int joined1 = 0;
-            if(bs!= nullptr && j1 < bs->nr_features)
+            if(bs!= nullptr && j1 < bs->nr_features) {
+                base1 = bs->index[j1];
                 joined1 = bs->index[j1+1] - base1;
+            }
 
             for(ffm_int i1=0; i1<(1+joined1); i1++)
             {
@@ -238,10 +240,12 @@ inline ffm_float bs_wTx(
                 ffm_int ff1 = i1==0? f1 : bs->features[base1+i1-1].f;
                 ffm_int vv1 = i1==0? v1 : bs->features[base1+i1-1].v;
 
-                ffm_int base2 = bs->index[j2];
+                ffm_int base2 = 0;
                 ffm_int joined2 = 0;
-                if(bs!= nullptr && j2 < bs->nr_features)
+                if(bs!= nullptr && j2 < bs->nr_features) {
+                    base2 = bs->index[j2];
                     joined2 = bs->index[j2+1] - base2;
+                }
 
                 for(ffm_int i2=0; i2<(1+joined2); i2++)
                 {
