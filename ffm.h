@@ -70,6 +70,8 @@ struct ffm_negative_sampling
     ffm_int num_negative_samples;
     ffm_int num_sampling_buckets;
     ffm_int *sampling_buckets;
+    ffm_int num_uniform_buckets;
+    ffm_int *uniform_buckets;
 };
 
 ffm_problem* ffm_read_problem(char const *path);

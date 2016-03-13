@@ -329,11 +329,12 @@ inline ffm_float bs_wTx(
 void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block_structure *bs, ffm_int num_neg,
     ffm_float eta, ffm_float lambda, shared_ptr<ffm_model> model,
     ffm_int l, ffm_float *Y, ffm_node *X, ffm_long *P, ffm_float *R, ffm_int *order,
-    ffm_double *target_loss, ffm_double *target_accuracy)
+    ffm_double *target_loss, ffm_double *target_accuracy, ffm_double *target_mpr)
 {
     vector<ffm_node> example_row;
     ffm_double loss = 0.0;
     ffm_double accuracy = 0.0;
+    ffm_long better_negatives = 0;
 #if defined USEOMP
 #pragma omp parallel
 #endif
@@ -342,7 +343,7 @@ void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block
 
 #if defined USEOMP
        next_random = omp_get_thread_num();
-#pragma omp for schedule(static) reduction(+: loss) reduction(+: accuracy) private(example_row)
+#pragma omp for schedule(static) reduction(+: loss) reduction(+: accuracy) reduction(+: better_negatives) private(example_row)
 #endif
     for(ffm_int ii = 0; ii < l; ii++)
     {
@@ -352,6 +353,8 @@ void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block
 
         example_row.resize(P[i+1] - P[i]);
         copy(&X[P[i]], &X[P[i+1]], example_row.begin());
+
+        ffm_float cosine;
 
         for(ffm_int jj = 0; jj < num_neg+1; jj++)
         {
@@ -380,6 +383,20 @@ void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block
                 ffm_float kappa = -y*expnyt/(1+expnyt);
                 bs_wTx(bs, example_row.data(), example_row.data() + example_row.size(), r, *model, kappa, eta, lambda, true);
             }
+
+            if(!update_model && num_neg>0 && target_mpr!=nullptr) {
+                if(jj==0)
+                    cosine = sq_cosine(bs, *model, example_row[0], example_row[ns->negative_position]);
+                else {
+                    for(ffm_int r=0; r<5; r++) {
+                        next_random = next_random * (unsigned long long)25214903917 + 11;
+                        example_row[ns->negative_position].j = ns->uniform_buckets[next_random % ns->num_uniform_buckets];
+                        ffm_float cur_cosine = sq_cosine(bs, *model, example_row[0], example_row[ns->negative_position]);
+                        if(cur_cosine > cosine)
+                            better_negatives++;
+                    }
+                }
+            }
         }
     }
     }
@@ -389,6 +406,9 @@ void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block
 
     if(target_accuracy!=nullptr)
         *target_accuracy += accuracy;
+
+    if(target_mpr!=nullptr)
+        *target_mpr += (ffm_double)better_negatives / (ffm_double)num_neg / 5.0;
 
 }
 
@@ -554,6 +574,8 @@ shared_ptr<ffm_model> train(
             cout << "va_logloss";
             cout.width(13);
             cout << "va_accuracy";
+            cout.width(13);
+            cout << "va_mpr";
         }
         cout << endl;
     }
@@ -568,7 +590,7 @@ shared_ptr<ffm_model> train(
         bs_gradient_descent(true, ns, bs, num_neg,
             param.eta, param.lambda, model,
             tr->l, tr->Y, tr->X, tr->P, R_tr.data(), order.data(),
-            &tr_loss, nullptr);
+            &tr_loss, nullptr, nullptr);
 
         tr_loss /= tr->l * (1 + num_neg);
 
@@ -582,19 +604,23 @@ shared_ptr<ffm_model> train(
             {
                 ffm_double va_loss = 0;
                 ffm_double va_accuracy = 0;
+                ffm_double va_mpr = 0;
 
                 bs_gradient_descent(false, ns, bs, num_neg,
                     param.eta, param.lambda, model,
                     va->l, va->Y, va->X, va->P, R_va.data(), nullptr,
-                    &va_loss, &va_accuracy);
+                    &va_loss, &va_accuracy, &va_mpr);
 
                 va_loss /= va->l * (1 + num_neg);
                 va_accuracy /= va->l * (1 + num_neg);
+                va_mpr /= va->l;
 
                 cout.width(13);
                 cout << fixed << setprecision(5) << va_loss;
                 cout.width(13);
                 cout << fixed << setprecision(5) << va_accuracy;
+                cout.width(13);
+                cout << fixed << setprecision(5) << va_mpr;
 
                 if(auto_stop)
                 {
@@ -694,6 +720,8 @@ shared_ptr<ffm_model> train_on_disk(
             cout << "va_logloss";
             cout.width(13);
             cout << "va_accuracy";
+            cout.width(13);
+            cout << "va_mpr";
         }
         cout << endl;
     }
@@ -731,7 +759,7 @@ shared_ptr<ffm_model> train_on_disk(
             bs_gradient_descent(true, ns, bs, num_neg,
                 param.eta, param.lambda, model,
                 l, Y.data(), X.data(), P.data(), rdata, nullptr,
-                &tr_loss, nullptr);
+                &tr_loss, nullptr, nullptr);
 
         }
 
@@ -751,6 +779,7 @@ shared_ptr<ffm_model> train_on_disk(
                 ffm_int va_l = 0;
                 ffm_double va_loss = 0;
                 ffm_double va_accuracy = 0;
+                ffm_double va_mpr = 0;
                 while(true)
                 {
                     ffm_int l;
@@ -776,17 +805,20 @@ shared_ptr<ffm_model> train_on_disk(
                     bs_gradient_descent(false, ns, bs, num_neg,
                         param.eta, param.lambda, model,
                         l, Y.data(), X.data(), P.data(), rdata, nullptr,
-                        &va_loss, &va_accuracy);
+                        &va_loss, &va_accuracy, &va_mpr);
 
                 }
 
                 va_loss /= va_l * (1 + num_neg);
                 va_accuracy /= va_l * (1 + num_neg);
+                va_mpr /= va_l;
 
                 cout.width(13);
                 cout << fixed << setprecision(5) << va_loss;
                 cout.width(13);
                 cout << fixed << setprecision(5) << va_accuracy;
+                cout.width(13);
+                cout << fixed << setprecision(5) << va_mpr;
 
                 if(auto_stop)
                 {
@@ -1309,22 +1341,25 @@ ffm_negative_sampling *ffm_create_negative_sampling(ffm_int negative_position, f
         throw bad_alloc();
 
     res->num_sampling_buckets = n;
-    res->sampling_buckets = read_negative_probabilities(path, n);
+    read_negative_probabilities(path, n, &res->sampling_buckets,
+        &res->num_uniform_buckets, &res->uniform_buckets);
     res->negative_position = negative_position;
     res->num_negative_samples = num_negative_samples;
 
     return res;
 }
 
-ffm_int *read_negative_probabilities(char const *path, ffm_int n)
+void read_negative_probabilities(char const *path, ffm_int n, ffm_int **buckets,
+    ffm_int *b, ffm_int **uni_buckets)
 {
     FILE *f_probs = fopen(path, "rb");
     if(f_probs == nullptr)
-        return nullptr;
+        throw invalid_argument("Can't open negative probabilities file");
 
     char line[kMaxLineSize];
     ffm_float total = 0.0;
     vector< pair<ffm_int, ffm_float> > probabilities;
+    vector<ffm_int> uniform;
 
     for(ffm_int i = 0; fgets(line, kMaxLineSize, f_probs) != nullptr; i++)
     {
@@ -1337,6 +1372,7 @@ ffm_int *read_negative_probabilities(char const *path, ffm_int n)
         ffm_int key_feature = atoi(key_f_char);
         ffm_float value = atof(value_char);
         probabilities.push_back( pair<ffm_int, ffm_float>(key_feature, value) );
+        uniform.push_back(key_feature);
         total += value;
     }
 
@@ -1348,14 +1384,14 @@ ffm_int *read_negative_probabilities(char const *path, ffm_int n)
              return a.second < b.second;
          });
 
-    ffm_int *res = new ffm_int[n];
-    if(res==nullptr)
+    *buckets = new ffm_int[n];
+    if(*buckets==nullptr)
         throw bad_alloc();
 
     auto it = probabilities.begin();
     ffm_float p = it->second / ffm_float(total);
     for(int i=0; i<n; i++) {
-      res[i] = it->first;
+      (*buckets)[i] = it->first;
       if(i >= p * n) {
         it++;
         if(it==probabilities.end()) it = it-1;
@@ -1363,7 +1399,11 @@ ffm_int *read_negative_probabilities(char const *path, ffm_int n)
       }
     }
 
-    return res;
+    *uni_buckets = new ffm_int[uniform.size()];
+    if(uni_buckets==nullptr)
+        throw bad_alloc();
+    *b = uniform.size();
+    copy(uniform.begin(), uniform.end(), *uni_buckets);
 }
 
 ffm_block_structure* ffm_read_block_structure(char const *path)

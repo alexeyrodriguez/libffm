@@ -85,23 +85,35 @@ public:
     void testReadNegativeProbabilities(void)
     {
         ffm_int *distribution;
-        distribution = read_negative_probabilities("fixtures/negative_probabilities.txt", 20);
+        ffm_int num_uniform;
+        ffm_int *uniform;
+        read_negative_probabilities("fixtures/negative_probabilities.txt", 20, &distribution, &num_uniform, &uniform);
         TS_ASSERT_EQUALS(distribution[0], 3);
         TS_ASSERT_EQUALS(distribution[5], 3);
         TS_ASSERT_EQUALS(distribution[6], 0);
         TS_ASSERT_EQUALS(distribution[19], 0);
+        TS_ASSERT_EQUALS(num_uniform, 2);
+        TS_ASSERT_EQUALS(uniform[0], 0);
+        TS_ASSERT_EQUALS(uniform[1], 3);
     }
 
     void testReadNegativeProbabilities2(void)
     {
         ffm_int *distribution;
-        distribution = read_negative_probabilities("fixtures/negative_probabilities2.txt", 10);
+        ffm_int num_uniform;
+        ffm_int *uniform;
+        read_negative_probabilities("fixtures/negative_probabilities2.txt", 10, &distribution, &num_uniform, &uniform);
         TS_ASSERT_EQUALS(distribution[0], 0);
         TS_ASSERT_EQUALS(distribution[1], 0);
         TS_ASSERT_EQUALS(distribution[2], 1);
         TS_ASSERT_EQUALS(distribution[3], 3);
         TS_ASSERT_EQUALS(distribution[4], 2);
         TS_ASSERT_EQUALS(distribution[9], 2);
+        TS_ASSERT_EQUALS(num_uniform, 4);
+        TS_ASSERT_EQUALS(uniform[0], 0);
+        TS_ASSERT_EQUALS(uniform[1], 1);
+        TS_ASSERT_EQUALS(uniform[2], 2);
+        TS_ASSERT_EQUALS(uniform[3], 3);
     }
 
     void testCreateNegativeSampling(void)
@@ -140,4 +152,79 @@ public:
         TS_ASSERT_EQUALS(11, target[2].j);
         TS_ASSERT_EQUALS(1, target[2].v);
     }
+
+    void testSqCosine1(void)
+    {
+        ffm_model m;
+        m.k = 4;
+        m.m = 1;
+        ffm_float w[m.k*2*2];
+        m.W = w;
+        w[0] = 1;
+        w[1] = 0;
+        w[2] = 0;
+        w[3] = 0;
+        w[8] = 1;
+        w[9] = 1;
+        w[10] = 0;
+        w[11] = 0;
+        ffm_node n1 = { 0, 0, 1.0 };
+        ffm_node n2 = { 0, 1, 1.0 };
+        ffm_float s = sq_cosine(nullptr, m, n1, n2);
+        TS_ASSERT_DELTA(s, 0.5, 0.01);
+    }
+
+    void testSqCosine2(void)
+    {
+        ffm_model m;
+        m.k = 4;
+        m.m = 1;
+        ffm_float w[m.k*2*2];
+        m.W = w;
+        w[0] = 1;
+        w[1] = 0;
+        w[2] = 0;
+        w[3] = 0;
+        w[8] = 1;
+        w[9] = 1;
+        w[10] = 0;
+        w[11] = 0;
+        ffm_node n1 = { 0, 0, 0.2 };
+        ffm_node n2 = { 0, 1, 10.0 };
+        ffm_float s = sq_cosine(nullptr, m, n1, n2);
+        TS_ASSERT_DELTA(s, 0.5, 0.01);
+    }
+
+    void testSqCosine3(void)
+    {
+        ffm_node bs_features[1] = { { 0, 2, 0.5} };
+        ffm_int bs_index[3] = { 0, 1, 1 };
+        ffm_block_structure bs;
+        bs.nr_features = 2;
+        bs.index = bs_index;
+        bs.features = bs_features;
+
+        ffm_model m;
+        m.k = 4;
+        m.m = 1;
+        ffm_float w[m.k*3*2];
+        m.W = w;
+        w[0] = 10;
+        w[1] = 0;
+        w[2] = 0;
+        w[3] = 0;
+        w[8] = 1;
+        w[9] = 1;
+        w[10] = 0;
+        w[11] = 0;
+        w[16] = 0;
+        w[17] = 2;
+        w[18] = 0;
+        w[19] = 0;
+        ffm_node n1 = { 0, 0, 0.1 };
+        ffm_node n2 = { 0, 1, 10.0 };
+        ffm_float s = sq_cosine(&bs, m, n1, n2);
+        TS_ASSERT_DELTA(s, 1.0, 0.01);
+    }
+
 };
