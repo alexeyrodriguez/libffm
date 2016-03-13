@@ -238,7 +238,7 @@ inline ffm_float bs_wTx(
             {
                 ffm_int jj1 = i1==0? j1 : bs->features[base1+i1-1].j;
                 ffm_int ff1 = i1==0? f1 : bs->features[base1+i1-1].f;
-                ffm_int vv1 = i1==0? v1 : bs->features[base1+i1-1].v;
+                ffm_float vv1 = i1==0? v1 : bs->features[base1+i1-1].v;
 
                 ffm_int base2 = 0;
                 ffm_int joined2 = 0;
@@ -251,7 +251,7 @@ inline ffm_float bs_wTx(
                 {
                     ffm_int jj2 = i2==0? j2 : bs->features[base2+i2-1].j;
                     ffm_int ff2 = i2==0? f2 : bs->features[base2+i2-1].f;
-                    ffm_int vv2 = i2==0? v2 : bs->features[base2+i2-1].v;
+                    ffm_float vv2 = i2==0? v2 : bs->features[base2+i2-1].v;
 
                     ffm_float *w1 = model.W + jj1*align1 + ff2*align0;
                     ffm_float *w2 = model.W + jj2*align1 + ff1*align0;
