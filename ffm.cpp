@@ -335,6 +335,8 @@ void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block
     ffm_double loss = 0.0;
     ffm_double accuracy = 0.0;
     ffm_long better_negatives = 0;
+    ffm_float neg_weight = num_neg > 0 ? (1.0f / num_neg) : 1.0f;
+    ffm_float div_neg = num_neg > 0 ? 2.0f : 1.0f;
 #if defined USEOMP
 #pragma omp parallel
 #endif
@@ -360,24 +362,27 @@ void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block
         {
 
             ffm_float y = Y[i];
+            ffm_float weight = 1.0;
 
             if(jj>0) // negative sampling
             {
                 next_random = next_random * (unsigned long long)25214903917 + 11;
                 example_row[ns->negative_position].j = ns->sampling_buckets[next_random % ns->num_sampling_buckets];
                 y = -1.0f;
+                weight = neg_weight;
             }
 
             ffm_float r = R == nullptr ? 1.0 : R[i];
+            r *= weight;
 
             ffm_float t = bs_wTx(bs, example_row.data(), example_row.data() + example_row.size(), r, *model);
 
             ffm_float expnyt = exp(-y*t);
 
-            loss += log(1+expnyt);
+            loss += log(1+expnyt) * weight;
 
             if(y*t >= 0.0)
-                accuracy += 1.0;
+                accuracy += weight;
 
             if(update_model) {
                 ffm_float kappa = -y*expnyt/(1+expnyt);
@@ -402,10 +407,10 @@ void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block
     }
 
     if(target_loss!=nullptr)
-        *target_loss += loss;
+        *target_loss += loss / div_neg;
 
     if(target_accuracy!=nullptr)
-        *target_accuracy += accuracy;
+        *target_accuracy += accuracy / div_neg;
 
     if(target_mpr!=nullptr)
         *target_mpr += (ffm_double)better_negatives / (ffm_double)num_neg / 5.0;
@@ -592,7 +597,7 @@ shared_ptr<ffm_model> train(
             tr->l, tr->Y, tr->X, tr->P, R_tr.data(), order.data(),
             &tr_loss, nullptr, nullptr);
 
-        tr_loss /= tr->l * (1 + num_neg);
+        tr_loss /= tr->l;
 
         if(!param.quiet)
         {
@@ -611,8 +616,8 @@ shared_ptr<ffm_model> train(
                     va->l, va->Y, va->X, va->P, R_va.data(), nullptr,
                     &va_loss, &va_accuracy, &va_mpr);
 
-                va_loss /= va->l * (1 + num_neg);
-                va_accuracy /= va->l * (1 + num_neg);
+                va_loss /= va->l;
+                va_accuracy /= va->l;
                 va_mpr /= va->l;
 
                 cout.width(13);
@@ -765,7 +770,7 @@ shared_ptr<ffm_model> train_on_disk(
 
         if(!param.quiet)
         {
-            tr_loss /= tr_l * (1 + num_neg);
+            tr_loss /= tr_l;
 
             cout.width(4);
             cout << iter;
@@ -809,8 +814,8 @@ shared_ptr<ffm_model> train_on_disk(
 
                 }
 
-                va_loss /= va_l * (1 + num_neg);
-                va_accuracy /= va_l * (1 + num_neg);
+                va_loss /= va_l;
+                va_accuracy /= va_l;
                 va_mpr /= va_l;
 
                 cout.width(13);
