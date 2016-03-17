@@ -579,8 +579,6 @@ shared_ptr<ffm_model> train(
             cout << "va_logloss";
             cout.width(13);
             cout << "va_accuracy";
-            cout.width(13);
-            cout << "va_mpr";
         }
         cout << endl;
     }
@@ -609,23 +607,19 @@ shared_ptr<ffm_model> train(
             {
                 ffm_double va_loss = 0;
                 ffm_double va_accuracy = 0;
-                ffm_double va_mpr = 0;
 
                 bs_gradient_descent(false, ns, bs, num_neg,
                     param.eta, param.lambda, model,
                     va->l, va->Y, va->X, va->P, R_va.data(), nullptr,
-                    &va_loss, &va_accuracy, &va_mpr);
+                    &va_loss, &va_accuracy, nullptr);
 
                 va_loss /= va->l;
                 va_accuracy /= va->l;
-                va_mpr /= va->l;
 
                 cout.width(13);
                 cout << fixed << setprecision(5) << va_loss;
                 cout.width(13);
                 cout << fixed << setprecision(5) << va_accuracy;
-                cout.width(13);
-                cout << fixed << setprecision(5) << va_mpr;
 
                 if(auto_stop)
                 {
@@ -725,8 +719,6 @@ shared_ptr<ffm_model> train_on_disk(
             cout << "va_logloss";
             cout.width(13);
             cout << "va_accuracy";
-            cout.width(13);
-            cout << "va_mpr";
         }
         cout << endl;
     }
@@ -784,7 +776,6 @@ shared_ptr<ffm_model> train_on_disk(
                 ffm_int va_l = 0;
                 ffm_double va_loss = 0;
                 ffm_double va_accuracy = 0;
-                ffm_double va_mpr = 0;
                 while(true)
                 {
                     ffm_int l;
@@ -810,20 +801,17 @@ shared_ptr<ffm_model> train_on_disk(
                     bs_gradient_descent(false, ns, bs, num_neg,
                         param.eta, param.lambda, model,
                         l, Y.data(), X.data(), P.data(), rdata, nullptr,
-                        &va_loss, &va_accuracy, &va_mpr);
+                        &va_loss, &va_accuracy, nullptr);
 
                 }
 
                 va_loss /= va_l;
                 va_accuracy /= va_l;
-                va_mpr /= va_l;
 
                 cout.width(13);
                 cout << fixed << setprecision(5) << va_loss;
                 cout.width(13);
                 cout << fixed << setprecision(5) << va_accuracy;
-                cout.width(13);
-                cout << fixed << setprecision(5) << va_mpr;
 
                 if(auto_stop)
                 {
