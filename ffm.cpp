@@ -329,12 +329,11 @@ inline ffm_float bs_wTx(
 void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block_structure *bs, ffm_int num_neg,
     ffm_float eta, ffm_float lambda, shared_ptr<ffm_model> model,
     ffm_int l, ffm_float *Y, ffm_node *X, ffm_long *P, ffm_float *R, ffm_int *order,
-    ffm_double *target_loss, ffm_double *target_accuracy, ffm_double *target_mpr)
+    ffm_double *target_loss, ffm_double *target_accuracy)
 {
     vector<ffm_node> example_row;
     ffm_double loss = 0.0;
     ffm_double accuracy = 0.0;
-    ffm_long better_negatives = 0;
     ffm_float neg_weight = num_neg > 0 ? (1.0f / num_neg) : 1.0f;
     ffm_float div_neg = num_neg > 0 ? 2.0f : 1.0f;
 #if defined USEOMP
@@ -345,7 +344,7 @@ void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block
 
 #if defined USEOMP
        next_random = omp_get_thread_num();
-#pragma omp for schedule(static) reduction(+: loss) reduction(+: accuracy) reduction(+: better_negatives) private(example_row)
+#pragma omp for schedule(static) reduction(+: loss) reduction(+: accuracy) private(example_row)
 #endif
     for(ffm_int ii = 0; ii < l; ii++)
     {
@@ -355,8 +354,6 @@ void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block
 
         example_row.resize(P[i+1] - P[i]);
         copy(&X[P[i]], &X[P[i+1]], example_row.begin());
-
-        ffm_float cosine;
 
         for(ffm_int jj = 0; jj < num_neg+1; jj++)
         {
@@ -389,19 +386,6 @@ void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block
                 bs_wTx(bs, example_row.data(), example_row.data() + example_row.size(), r, *model, kappa, eta, lambda, true);
             }
 
-            if(!update_model && num_neg>0 && target_mpr!=nullptr) {
-                if(jj==0)
-                    cosine = sq_cosine(bs, *model, example_row[0], example_row[ns->negative_position]);
-                else {
-                    for(ffm_int r=0; r<5; r++) {
-                        next_random = next_random * (unsigned long long)25214903917 + 11;
-                        example_row[ns->negative_position].j = ns->uniform_buckets[next_random % ns->num_uniform_buckets];
-                        ffm_float cur_cosine = sq_cosine(bs, *model, example_row[0], example_row[ns->negative_position]);
-                        if(cur_cosine > cosine)
-                            better_negatives++;
-                    }
-                }
-            }
         }
     }
     }
@@ -411,9 +395,6 @@ void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block
 
     if(target_accuracy!=nullptr)
         *target_accuracy += accuracy / div_neg;
-
-    if(target_mpr!=nullptr)
-        *target_mpr += (ffm_double)better_negatives / (ffm_double)num_neg / 5.0;
 
 }
 
@@ -593,7 +574,7 @@ shared_ptr<ffm_model> train(
         bs_gradient_descent(true, ns, bs, num_neg,
             param.eta, param.lambda, model,
             tr->l, tr->Y, tr->X, tr->P, R_tr.data(), order.data(),
-            &tr_loss, nullptr, nullptr);
+            &tr_loss, nullptr);
 
         tr_loss /= tr->l;
 
@@ -611,7 +592,7 @@ shared_ptr<ffm_model> train(
                 bs_gradient_descent(false, ns, bs, num_neg,
                     param.eta, param.lambda, model,
                     va->l, va->Y, va->X, va->P, R_va.data(), nullptr,
-                    &va_loss, &va_accuracy, nullptr);
+                    &va_loss, &va_accuracy);
 
                 va_loss /= va->l;
                 va_accuracy /= va->l;
@@ -756,7 +737,7 @@ shared_ptr<ffm_model> train_on_disk(
             bs_gradient_descent(true, ns, bs, num_neg,
                 param.eta, param.lambda, model,
                 l, Y.data(), X.data(), P.data(), rdata, nullptr,
-                &tr_loss, nullptr, nullptr);
+                &tr_loss, nullptr);
 
         }
 
@@ -801,7 +782,7 @@ shared_ptr<ffm_model> train_on_disk(
                     bs_gradient_descent(false, ns, bs, num_neg,
                         param.eta, param.lambda, model,
                         l, Y.data(), X.data(), P.data(), rdata, nullptr,
-                        &va_loss, &va_accuracy, nullptr);
+                        &va_loss, &va_accuracy);
 
                 }
 
