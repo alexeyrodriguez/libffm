@@ -331,11 +331,11 @@ void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block
     ffm_int l, ffm_float *Y, ffm_node *X, ffm_long *P, ffm_float *R, ffm_int *order,
     ffm_double *target_loss, ffm_double *target_accuracy)
 {
-    vector<ffm_node> example_row;
+    vector<ffm_node> example_pos;
+    vector<ffm_node> example_neg;
     ffm_double loss = 0.0;
     ffm_double accuracy = 0.0;
     ffm_float neg_weight = num_neg > 0 ? (1.0f / num_neg) : 1.0f;
-    ffm_float div_neg = num_neg > 0 ? 2.0f : 1.0f;
 #if defined USEOMP
 #pragma omp parallel
 #endif
@@ -344,7 +344,7 @@ void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block
 
 #if defined USEOMP
        next_random = omp_get_thread_num();
-#pragma omp for schedule(static) reduction(+: loss) reduction(+: accuracy) private(example_row)
+#pragma omp for schedule(static) reduction(+: loss) reduction(+: accuracy) private(example_pos) private(example_neg)
 #endif
     for(ffm_int ii = 0; ii < l; ii++)
     {
@@ -352,38 +352,36 @@ void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block
         if(order!=nullptr)
             i = order[ii];
 
-        example_row.resize(P[i+1] - P[i]);
-        copy(&X[P[i]], &X[P[i+1]], example_row.begin());
+        example_pos.resize(P[i+1] - P[i]);
+        example_neg.resize(P[i+1] - P[i]);
+        copy(&X[P[i]], &X[P[i+1]], example_pos.begin());
+        copy(&X[P[i]], &X[P[i+1]], example_neg.begin());
 
-        for(ffm_int jj = 0; jj < num_neg+1; jj++)
+        for(ffm_int jj = 0; jj < num_neg; jj++)
         {
 
             ffm_float y = Y[i];
-            ffm_float weight = 1.0;
 
-            if(jj>0) // negative sampling
-            {
-                next_random = next_random * (unsigned long long)25214903917 + 11;
-                example_row[ns->negative_position].j = ns->sampling_buckets[next_random % ns->num_sampling_buckets];
-                y = -1.0f;
-                weight = neg_weight;
-            }
+            // Negative sampling
+            next_random = next_random * (unsigned long long)25214903917 + 11;
+            example_neg[ns->negative_position].j = ns->sampling_buckets[next_random % ns->num_sampling_buckets];
 
             ffm_float r = R == nullptr ? 1.0 : R[i];
-            r *= weight;
 
-            ffm_float t = bs_wTx(bs, example_row.data(), example_row.data() + example_row.size(), r, *model);
+            ffm_float t_pos = bs_wTx(bs, example_pos.data(), example_pos.data() + example_pos.size(), r, *model);
+            ffm_float t_neg = bs_wTx(bs, example_neg.data(), example_neg.data() + example_neg.size(), r, *model);
 
-            ffm_float expnyt = exp(-y*t);
+            ffm_float expnyt = exp(-y*(t_pos - t_neg));
 
-            loss += log(1+expnyt) * weight;
+            loss += log(1+expnyt) * neg_weight;
 
-            if(y*t >= 0.0)
-                accuracy += weight;
+            if(y*(t_pos - t_neg) >= 0.0)
+                accuracy += neg_weight;
 
             if(update_model) {
                 ffm_float kappa = -y*expnyt/(1+expnyt);
-                bs_wTx(bs, example_row.data(), example_row.data() + example_row.size(), r, *model, kappa, eta, lambda, true);
+                bs_wTx(bs, example_pos.data(), example_pos.data() + example_pos.size(), r, *model, kappa, eta, lambda, true);
+                bs_wTx(bs, example_neg.data(), example_neg.data() + example_neg.size(), -1.0 * r, *model, kappa, eta, lambda, true);
             }
 
         }
@@ -391,10 +389,10 @@ void bs_gradient_descent(bool update_model, ffm_negative_sampling *ns, ffm_block
     }
 
     if(target_loss!=nullptr)
-        *target_loss += loss / div_neg;
+        *target_loss += loss;
 
     if(target_accuracy!=nullptr)
-        *target_accuracy += accuracy / div_neg;
+        *target_accuracy += accuracy;
 
 }
 
